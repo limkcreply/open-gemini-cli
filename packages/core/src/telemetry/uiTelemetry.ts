@@ -16,7 +16,37 @@ import type {
   ApiErrorEvent,
   ApiResponseEvent,
   ToolCallEvent,
+  ApiCallSource,
 } from "./types.js";
+
+/**
+ * Global context for tracking current API call source.
+ * Used to distinguish main conversation calls from auxiliary calls
+ * (next speaker checker, compression, loop detection, etc.)
+ */
+let currentApiCallSource: ApiCallSource = "main";
+
+/**
+ * Set the current API call source before making an API call.
+ * This allows uiTelemetry to know which calls should update the UI token count.
+ */
+export function setApiCallSource(source: ApiCallSource): void {
+  currentApiCallSource = source;
+}
+
+/**
+ * Get the current API call source.
+ */
+export function getApiCallSource(): ApiCallSource {
+  return currentApiCallSource;
+}
+
+/**
+ * Reset API call source back to main (default).
+ */
+export function resetApiCallSource(): void {
+  currentApiCallSource = "main";
+}
 
 export type UiEvent =
   | (ApiResponseEvent & { "event.name": typeof EVENT_API_RESPONSE })
@@ -160,26 +190,7 @@ export class UiTelemetryService extends EventEmitter {
   }
 
   private processApiResponse(event: ApiResponseEvent) {
-    const debugLog = (msg: string) => {
-      if (!process.env["DEBUG_CHECKNEXTSPEAKER"]) return;
-      const fs = require("fs");
-      if (!(global as any).__kaidex_debug_log_file) {
-        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-        (global as any).__kaidex_debug_log_file =
-          `/tmp/kaidex_checknext_${timestamp}.log`;
-      }
-      try {
-        fs.appendFileSync((global as any).__kaidex_debug_log_file, msg + "\n");
-      } catch (e) {
-        // Silently fail
-      }
-    };
-
     const modelMetrics = this.getOrCreateModelMetrics(event.model);
-
-    debugLog(
-      `🔢 [${new Date().toISOString()}] TOKEN_TELEMETRY_PROCESS_API_RESPONSE: input_token_count=${event.input_token_count}, output_token_count=${event.output_token_count}, total_token_count=${event.total_token_count}`,
-    );
 
     modelMetrics.api.totalRequests++;
     modelMetrics.api.totalLatencyMs += event.duration_ms;
@@ -191,10 +202,13 @@ export class UiTelemetryService extends EventEmitter {
     modelMetrics.tokens.thoughts += event.thoughts_token_count;
     modelMetrics.tokens.tool += event.tool_token_count;
 
-    this.#lastPromptTokenCount = event.input_token_count;
-    debugLog(
-      `🔢 [${new Date().toISOString()}] TOKEN_TELEMETRY_STORED: lastPromptTokenCount=${this.#lastPromptTokenCount}`,
-    );
+    // Only update lastPromptTokenCount for main conversation calls
+    // Auxiliary calls (next_speaker, compression internal, loop_detection)
+    // have different context sizes and would cause UI bouncing
+    const source = getApiCallSource();
+    if (source === "main") {
+      this.#lastPromptTokenCount = event.input_token_count;
+    }
   }
 
   private processApiError(event: ApiErrorEvent) {

@@ -49,6 +49,10 @@ import {
   MalformedJsonResponseEvent,
   NextSpeakerCheckEvent,
 } from "../telemetry/types.js";
+import {
+  setApiCallSource,
+  resetApiCallSource,
+} from "../telemetry/uiTelemetry.js";
 import type { IdeContext, File } from "../ide/ideContext.js";
 import { handleFallback } from "../fallback/handler.js";
 import * as fs from "node:fs";
@@ -474,6 +478,31 @@ export class KaiDexClient {
       yield { type: KaiDexEventType.ChatCompressed, value: compressed };
     }
 
+    // HARD CAP: If context still exceeds 90% after compression, force truncate
+    const model = this.config.getModel();
+    const limit = tokenLimit(model);
+    const safeLimit = limit * 0.9; // Keep 10% buffer for response
+    let currentHistory = this.getChat().getHistory(true);
+    let { totalTokens: currentTokens } =
+      await this.getContentGeneratorOrFail().countTokens({
+        model,
+        contents: currentHistory,
+      });
+
+    // Force truncate until under safe limit
+    while (currentTokens && currentTokens > safeLimit && currentHistory.length > 2) {
+      // Remove oldest 20% of messages
+      const removeCount = Math.max(1, Math.floor(currentHistory.length * 0.2));
+      currentHistory = currentHistory.slice(removeCount);
+      this.getChat().setHistory(currentHistory);
+
+      const result = await this.getContentGeneratorOrFail().countTokens({
+        model,
+        contents: currentHistory,
+      });
+      currentTokens = result.totalTokens;
+    }
+
     // Prevent context updates from being sent while a tool call is
     // waiting for a response. The KaiDex API requires that a functionResponse
     // part from the user immediately follows a functionCall part from the model
@@ -556,6 +585,7 @@ export class KaiDexClient {
         this.getChat(),
         this,
         signal,
+        this.config.getModel(),
       );
       logNextSpeakerCheck(
         this.config,
@@ -841,15 +871,36 @@ export class KaiDexClient {
     const curatedHistory = this.getChat().getHistory(true);
 
     // Regardless of `force`, don't do anything if the history is empty.
-    if (
-      curatedHistory.length === 0 ||
-      (this.hasFailedCompressionAttempt && !force)
-    ) {
+    if (curatedHistory.length === 0) {
       return {
         originalTokenCount: 0,
         newTokenCount: 0,
         compressionStatus: CompressionStatus.NOOP,
       };
+    }
+
+    // If a previous compression attempt failed, check if we should retry
+    // Allow retry when context is critically full (>95% of limit)
+    if (this.hasFailedCompressionAttempt && !force) {
+      const model = this.config.getModel();
+      const limit = tokenLimit(model);
+      const { totalTokens: currentTokens } =
+        await this.getContentGeneratorOrFail().countTokens({
+          model,
+          contents: curatedHistory,
+        });
+      const usagePercent = currentTokens ? (currentTokens / limit) * 100 : 0;
+
+      // If context is critically full (>95%), reset flag and allow retry
+      if (usagePercent > 95) {
+        this.hasFailedCompressionAttempt = false;
+      } else {
+        return {
+          originalTokenCount: currentTokens || 0,
+          newTokenCount: currentTokens || 0,
+          compressionStatus: CompressionStatus.NOOP,
+        };
+      }
     }
 
     const model = this.config.getModel();
@@ -861,7 +912,7 @@ export class KaiDexClient {
       });
     if (originalTokenCount === undefined) {
       console.warn(`Could not determine token count for model ${model}.`);
-      this.hasFailedCompressionAttempt = !force && true;
+      // Don't permanently block - might succeed next time
       return {
         originalTokenCount: 0,
         newTokenCount: 0,
@@ -904,6 +955,8 @@ export class KaiDexClient {
 
     this.getChat().setHistory(historyToCompress);
 
+    // Mark compression call so it doesn't update UI token count
+    setApiCallSource("compression");
     const { text: summary } = await this.getChat().sendMessage(
       {
         message: {
@@ -915,6 +968,8 @@ export class KaiDexClient {
       },
       prompt_id,
     );
+    resetApiCallSource();
+
     const chat = await this.startChat([
       {
         role: "user",
@@ -936,7 +991,7 @@ export class KaiDexClient {
       });
     if (newTokenCount === undefined) {
       console.warn("Could not determine compressed history token count.");
-      this.hasFailedCompressionAttempt = !force && true;
+      // Don't permanently block - might succeed next time
       return {
         originalTokenCount,
         newTokenCount: originalTokenCount,
@@ -954,13 +1009,22 @@ export class KaiDexClient {
     );
 
     if (newTokenCount > originalTokenCount) {
-      this.getChat().setHistory(curatedHistory);
-      this.hasFailedCompressionAttempt = !force && true;
+      // Compression inflated - fallback to truncation
+      // Keep only the most recent 30% of history
+      const keepCount = Math.max(2, Math.floor(curatedHistory.length * 0.3));
+      const truncatedHistory = curatedHistory.slice(-keepCount);
+      this.getChat().setHistory(truncatedHistory);
+
+      const { totalTokens: truncatedTokenCount } =
+        await this.getContentGeneratorOrFail().countTokens({
+          model: this.config.getModel(),
+          contents: truncatedHistory,
+        });
+
       return {
         originalTokenCount,
-        newTokenCount,
-        compressionStatus:
-          CompressionStatus.COMPRESSION_FAILED_INFLATED_TOKEN_COUNT,
+        newTokenCount: truncatedTokenCount || originalTokenCount,
+        compressionStatus: CompressionStatus.COMPRESSED,
       };
     } else {
       this.chat = chat; // Chat compression successful, set new state.

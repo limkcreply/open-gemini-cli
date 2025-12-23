@@ -54,6 +54,7 @@ export interface ChatCompletionRequest {
   temperature?: number;
   max_tokens?: number;
   stream?: boolean;
+  stream_options?: { include_usage?: boolean };
   tools?: any[];
 }
 
@@ -174,6 +175,8 @@ export interface Part {
     outcome?: string; // Optional to match Google SDK Outcome enum
     output?: string;
   };
+  // Gemini 3 Pro: encrypted reasoning state that must be passed back with function responses
+  thoughtSignature?: string;
 }
 
 export type PartListUnion = Part[] | string;
@@ -1334,6 +1337,7 @@ class LocalLLMContentGenerator implements ContentGenerator {
           const retryBody: any = {
             messages: finalMessages,
             stream: true,
+            stream_options: { include_usage: true },
             tools: undefined,
           };
 
@@ -1506,7 +1510,7 @@ class LocalLLMContentGenerator implements ContentGenerator {
             ],
           } as ChatCompletionResponse;
 
-          // Yield finish marker
+          // Yield finish marker with usage if available
           yield {
             choices: [
               {
@@ -1515,6 +1519,7 @@ class LocalLLMContentGenerator implements ContentGenerator {
                 finish_reason: "stop",
               },
             ],
+            ...(jsonResponse.usage ? { usage: jsonResponse.usage } : {}),
           } as ChatCompletionResponse;
           return;
         }
@@ -1587,32 +1592,14 @@ class LocalLLMContentGenerator implements ContentGenerator {
    * Convert Google Gemini Content format to OpenAI messages
    */
   private convertToOpenAIMessages(contents: Content[]): Message[] {
-    const debugLog = (msg: string) => {
-      if (!process.env["DEBUG_CHECKNEXTSPEAKER"]) return;
-      const fs = require("fs");
-      if (!(global as any).__kaidex_debug_log_file) {
-        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-        (global as any).__kaidex_debug_log_file =
-          `/tmp/kaidex_checknext_${timestamp}.log`;
-      }
-      fs.appendFileSync((global as any).__kaidex_debug_log_file, `${msg}\n`);
-      console.log(msg);
-    };
-
     const messages: Message[] = [];
-    debugLog(`convertToOpenAIMessages: INPUT contents count=${contents.length}`);
-    debugLog(`convertToOpenAIMessages: INPUT contents=${JSON.stringify(contents, null, 2)}`);
 
     for (const content of contents) {
-      debugLog(`Processing content: role=${content.role}, parts count=${content.parts?.length || 0}`);
-
       // Handle functionResponse parts (tool results)
       const functionResponseParts =
         content.parts?.filter((part) => "functionResponse" in part) || [];
-      debugLog(`functionResponseParts.length=${functionResponseParts.length}`);
 
       if (functionResponseParts.length > 0) {
-        debugLog(`BRANCH: functionResponse detected, count=${functionResponseParts.length}`);
 
         // For each tool result, create appropriate message format
         for (const part of functionResponseParts) {
@@ -1624,7 +1611,6 @@ class LocalLLMContentGenerator implements ContentGenerator {
 
           if (this.isCloudAPI && toolCallId) {
             // OpenAI format: role: "tool" with tool_call_id - cap output to avoid blowouts
-            debugLog(`Converting functionResponse to OpenAI tool message, id=${toolCallId}`);
             messages.push({
               role: "tool",
               tool_call_id: toolCallId,
@@ -1634,7 +1620,6 @@ class LocalLLMContentGenerator implements ContentGenerator {
             // Local LLM format: use USER role to maintain alternation (avoid assistant→assistant)
             const snippet = capToolOutput(toolOutput);
             const toolResultMessage = `Tool '${toolName}' returned:\n${snippet}`;
-            debugLog(`Converting functionResponse to user message (local LLM), tool=${toolName}`);
             messages.push({
               role: "user",
               content: toolResultMessage,
@@ -1649,8 +1634,6 @@ class LocalLLMContentGenerator implements ContentGenerator {
         content.parts?.filter((part) => "functionCall" in part) || [];
 
       if (functionCallParts.length > 0) {
-        debugLog(`BRANCH: functionCall detected, count=${functionCallParts.length}`);
-
         // Detect if this came from XML parsing (Qwen3-style) vs native OpenAI format
         const isXMLBased = functionCallParts.some((part) =>
           (part as any).functionCall?.id?.startsWith("xml_"),
@@ -1658,7 +1641,6 @@ class LocalLLMContentGenerator implements ContentGenerator {
 
         if (isXMLBased) {
           // Reconstruct XML format from functionCall object for MLX/Qwen3
-          debugLog(`Reconstructing XML format for Qwen3-style tool calls`);
           const xmlContent = functionCallParts
             .map((part) => {
               const fc = (part as any).functionCall;
@@ -1675,7 +1657,6 @@ class LocalLLMContentGenerator implements ContentGenerator {
           });
         } else {
           // Use OpenAI tool_calls structure for OpenAI-compatible servers
-          debugLog(`Using OpenAI tool_calls format`);
 
           // Extract text content if any
           const textParts =
@@ -1686,7 +1667,8 @@ class LocalLLMContentGenerator implements ContentGenerator {
 
           const tool_calls = functionCallParts.map((part, index) => {
             const fc = (part as any).functionCall;
-            return {
+            const ts = (part as any).thoughtSignature;
+            const tc: any = {
               id: fc?.id || `call_${Date.now()}_${index}`,
               type: "function" as const,
               function: {
@@ -1694,6 +1676,16 @@ class LocalLLMContentGenerator implements ContentGenerator {
                 arguments: JSON.stringify(fc?.args || {}),
               },
             };
+            // Include thought_signature for Gemini 3 Pro OpenAI compat
+            // Format: extra_content.google.thought_signature
+            if (ts) {
+              tc.extra_content = {
+                google: {
+                  thought_signature: ts,
+                },
+              };
+            }
+            return tc;
           });
 
           messages.push({
@@ -1710,7 +1702,6 @@ class LocalLLMContentGenerator implements ContentGenerator {
       const text = textParts
         .map((part) => ("text" in part ? part.text : ""))
         .join("\n");
-      debugLog(`textParts.length=${textParts.length}, text.length=${text.length}`);
 
       // Handle inlineData parts (images, PDFs, etc.)
       const inlineDataParts =
@@ -1724,7 +1715,6 @@ class LocalLLMContentGenerator implements ContentGenerator {
             : content.role === "model"
               ? "assistant"
               : "user";
-        debugLog(`BRANCH: inlineData detected, role=${role}, count=${inlineDataParts.length}`);
 
         const contentArray: any[] = [];
 
@@ -1738,7 +1728,6 @@ class LocalLLMContentGenerator implements ContentGenerator {
           const inline = (part as any).inlineData;
           const mimeType = inline.mimeType || "image/png";
           const base64Data = inline.data;
-          debugLog(`Converting inlineData to image_url: mimeType=${mimeType}, dataLength=${base64Data?.length || 0}`);
 
           contentArray.push({
             type: "image_url",
@@ -1761,22 +1750,13 @@ class LocalLLMContentGenerator implements ContentGenerator {
             : content.role === "model"
               ? "assistant"
               : "user";
-        debugLog(`BRANCH: text detected, role=${role}, length=${text.length}`);
         messages.push({
           role: role as "user" | "assistant",
           content: text.trim(),
         });
-      } else {
       }
     }
 
-    console.log(
-      contents.length,
-      "contents to",
-      messages.length,
-      "OpenAI messages",
-    );
-    debugLog(`convertToOpenAIMessages: OUTPUT messages=${JSON.stringify(messages, null, 2)}`);
     return messages;
   }
 
@@ -1785,8 +1765,6 @@ class LocalLLMContentGenerator implements ContentGenerator {
    * Format: <function=read_file><parameter=absolute_path>/path</parameter></function>
    */
   private parseXMLToolCalls(content: string): any[] {
-    console.log(`parseXMLToolCalls: parsing content of length ${content.length}`);
-    console.log(`parseXMLToolCalls: first 1000 chars:`, content.substring(0, 1000));
     const functionCalls: any[] = [];
 
     // Match XML function calls - handles both formats:
@@ -1801,8 +1779,6 @@ class LocalLLMContentGenerator implements ContentGenerator {
       matchCount++;
       const functionName = match[1];
       const parametersXML = match[2];
-
-      console.log(`parseXMLToolCalls: found function ${functionName} with parameters:`, parametersXML);
 
       // Parse parameters from XML
       const args: any = {};
@@ -1822,7 +1798,6 @@ class LocalLLMContentGenerator implements ContentGenerator {
         // Coerce numeric strings to numbers (XML always extracts as strings)
         if (/^\d+$/.test(paramValue)) {
           paramValue = Number(paramValue);
-          console.log(`parseXMLToolCalls: coerced numeric param ${actualParamName} to ${paramValue}`);
         }
 
         args[actualParamName] = paramValue;
@@ -1831,9 +1806,8 @@ class LocalLLMContentGenerator implements ContentGenerator {
       const toolCall = {
         name: functionName,
         args: args,
-        id: `xml_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        id: `xml_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
       };
-      console.log(`parseXMLToolCalls: created toolCall:`, JSON.stringify(toolCall, null, 2));
       functionCalls.push(toolCall);
     }
 
@@ -1957,47 +1931,13 @@ class LocalLLMContentGenerator implements ContentGenerator {
   private convertFromOpenAIResponse(
     openaiResponse: ChatCompletionResponse,
   ): GenerateContentResponse {
-    const debugLog = (msg: string) => {
-      if (!process.env["DEBUG_CHECKNEXTSPEAKER"]) return;
-      const fs = require("fs");
-      if (!(global as any).__kaidex_debug_log_file) {
-        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-        (global as any).__kaidex_debug_log_file =
-          `/tmp/kaidex_checknext_${timestamp}.log`;
-      }
-      fs.appendFileSync((global as any).__kaidex_debug_log_file, `${msg}\n`);
-      console.log(msg);
-    };
-
-    // Remove logprobs from logging to prevent Claude crash when analyzing logs
-    const { choices, ...responseWithoutChoices } = openaiResponse;
-    const safeChoices = choices?.map((choice: any) => {
-      const { logprobs, ...safeChoice } = choice;
-      return safeChoice;
-    });
-    console.log(
-      JSON.stringify(
-        { ...responseWithoutChoices, choices: safeChoices },
-        null,
-        2,
-      ),
-    );
     const choice = openaiResponse.choices?.[0];
     const content = choice?.message?.content || "";
     const toolCalls = (choice?.message as any)?.tool_calls || [];
-    console.log(
-      content?.length,
-      "chars:",
-      content?.slice(0, 100),
-    );
-
-    // DEBUG: Log full content if it contains XML tool calls
-    if (content.includes("<function=")) {
-      debugLog(`Content contains XML tool calls: ${content.slice(0, 200)}`);
-    }
 
     // Convert OpenAI tool_calls to Gemini functionCalls format
-    let functionCalls = toolCalls.map((toolCall: any) => {
+    // Also extract thought_signature for Gemini 3 Pro (extra_content.google.thought_signature)
+    const toolCallsWithSignatures = toolCalls.map((toolCall: any) => {
       const args = JSON.parse(toolCall.function.arguments || "{}");
 
       // Coerce numeric strings to numbers (LLM sometimes returns "2000" instead of 2000)
@@ -2011,31 +1951,42 @@ class LocalLLMContentGenerator implements ContentGenerator {
       }
 
       return {
-        name: toolCall.function.name,
-        args: args,
-        id: toolCall.id,
+        functionCall: {
+          name: toolCall.function.name,
+          args: args,
+          id: toolCall.id,
+        },
+        // Gemini 3 Pro: extract thought_signature from extra_content.google
+        thoughtSignature: toolCall.extra_content?.google?.thought_signature,
       };
     });
 
+    let functionCalls = toolCallsWithSignatures.map((tc: any) => tc.functionCall);
+
     // If no tool_calls found but content contains XML format tool calls, parse them
     if (functionCalls.length === 0 && content.includes("<function=")) {
-      debugLog(`No JSON tool_calls but content contains XML format tool calls`);
       functionCalls = this.parseXMLToolCalls(content);
-      debugLog(`Parsed ${functionCalls.length} XML tool calls`);
     }
 
-    console.log(
-      functionCalls.length,
-      "function calls",
-    );
-
     // If we have function calls (either JSON or parsed XML), show them instead of raw content
-    const parts =
-      functionCalls.length > 0
-        ? functionCalls.map((fc: any) => ({ functionCall: fc }))
-        : content
-          ? [{ text: content }]
-          : [];
+    // Include thoughtSignature on parts for Gemini 3 Pro
+    let parts: Part[];
+    if (toolCallsWithSignatures.length > 0 && toolCallsWithSignatures[0].functionCall) {
+      parts = toolCallsWithSignatures.map((tc: any) => {
+        const part: Part = { functionCall: tc.functionCall };
+        if (tc.thoughtSignature) {
+          part.thoughtSignature = tc.thoughtSignature;
+        }
+        return part;
+      });
+    } else if (functionCalls.length > 0) {
+      // XML-parsed or other function calls without signatures
+      parts = functionCalls.map((fc: any) => ({ functionCall: fc }));
+    } else if (content) {
+      parts = [{ text: content }];
+    } else {
+      parts = [];
+    }
 
     const candidateStructure = {
       content: {
@@ -2047,8 +1998,6 @@ class LocalLLMContentGenerator implements ContentGenerator {
 
     // Client-side token counting for local LLMs that don't return usage metadata
     let usageMetadata;
-    // Debug: log raw provider usage if present
-    debugLog(`TOKEN_TELEMETRY_INPUT: openaiResponse.usage=${JSON.stringify(openaiResponse.usage || null)}`);
     if (openaiResponse.usage) {
       // Use server-provided usage if available (OpenAI, Gemini, etc.)
       usageMetadata = {
@@ -2056,11 +2005,8 @@ class LocalLLMContentGenerator implements ContentGenerator {
         candidatesTokenCount: openaiResponse.usage.completion_tokens || 0,
         totalTokenCount: openaiResponse.usage.total_tokens || 0,
       };
-      debugLog(`[${new Date().toISOString()}] SERVER usage: prompt=${usageMetadata.promptTokenCount}, response=${usageMetadata.candidatesTokenCount}`);
-      // Explicit mapping log for grepability
     } else {
       // Estimate tokens client-side for local LLMs (MLX, Ollama, etc.)
-      debugLog(`TOKEN_TELEMETRY_INPUT: provider usage missing - will run client-side estimation`);
       const responseTokens = this.estimateTokenCount(content);
       // Get prompt tokens from the stored request context if available
       const promptTokens = (this as any)._lastRequestTokenCount || 0;
@@ -2069,15 +2015,13 @@ class LocalLLMContentGenerator implements ContentGenerator {
         candidatesTokenCount: responseTokens,
         totalTokenCount: promptTokens + responseTokens,
       };
-      debugLog(`[${new Date().toISOString()}] CLIENT-SIDE token estimation: prompt=${promptTokens}, response=${responseTokens}, total=${promptTokens + responseTokens}`);
-      debugLog(`RESPONSE USAGE METADATA (ESTIMATE): ${JSON.stringify(usageMetadata)}`);
     }
 
     const geminiResponse: GenerateContentResponse = {
       response: {
-        candidates: [candidateStructure],
+        candidates: [candidateStructure as any],
       },
-      candidates: [candidateStructure],
+      candidates: [candidateStructure as any],
       text: () => content,
       data: openaiResponse,
       functionCalls: functionCalls,
@@ -2085,11 +2029,6 @@ class LocalLLMContentGenerator implements ContentGenerator {
       codeExecutionResult: null,
       usageMetadata: usageMetadata,
     };
-    console.log(
-      geminiResponse.candidates?.length,
-      "functionCalls:",
-      geminiResponse.functionCalls?.length,
-    );
     return geminiResponse;
   }
 
@@ -2109,9 +2048,6 @@ class LocalLLMContentGenerator implements ContentGenerator {
           if (lastMessage && lastMessage.role === "user") {
             const jsonInstruction = `\n\nIMPORTANT: Respond with valid JSON only in this exact format:\n${JSON.stringify(schema, null, 2)}`;
             lastMessage.content += jsonInstruction;
-            console.log(
-              lastMessage.content.length,
-            );
           }
         }
       }
@@ -2123,18 +2059,7 @@ class LocalLLMContentGenerator implements ContentGenerator {
         temperature: request.config?.temperature ?? 0.1,
         max_tokens: request.config?.maxOutputTokens ?? this.maxOutputTokens,
         stream: true,
-      };
-
-      const debugLog = (msg: string) => {
-        if (!process.env["DEBUG_CHECKNEXTSPEAKER"]) return;
-        const fs = require("fs");
-        if (!(global as any).__kaidex_debug_log_file) {
-          const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-          (global as any).__kaidex_debug_log_file =
-            `/tmp/kaidex_checknext_${timestamp}.log`;
-        }
-        fs.appendFileSync((global as any).__kaidex_debug_log_file, `${msg}\n`);
-        console.log(msg);
+        stream_options: { include_usage: true }, // Get usage data in streaming response
       };
 
       // Estimate input tokens for client-side counting (used when LLM doesn't return usage)
@@ -2143,15 +2068,11 @@ class LocalLLMContentGenerator implements ContentGenerator {
         .join(" ");
       (this as any)._lastRequestTokenCount = this.estimateTokenCount(inputText);
 
-      const requestTimestamp = new Date().toISOString();
-      debugLog(`generateContent request at ${requestTimestamp}`);
       const openaiResponse = await this.chatCompletion(
         openaiRequest,
         userPromptId,
       );
-      debugLog(`generateContent response received, content length: ${openaiResponse.choices?.[0]?.message?.content?.length || 0}`);
       const geminiResponse = this.convertFromOpenAIResponse(openaiResponse);
-      debugLog(`convertFromOpenAIResponse candidates: ${geminiResponse.candidates?.length || 0}`);
       return geminiResponse;
     } catch (error) {
       console.error("Gemini compatibility generateContent error:", error);
@@ -2163,18 +2084,11 @@ class LocalLLMContentGenerator implements ContentGenerator {
     request: GenerateContentParameters,
     userPromptId: string,
   ): AsyncGenerator<GenerateContentResponse> {
-    console.log(
-      request.config?.tools?.length || 0,
-    );
     try {
       const messages = this.convertToOpenAIMessages(request.contents);
 
       // Convert Gemini tools to OpenAI function calling format
       const tools = this.convertToOpenAITools(request.config?.tools);
-      console.log(
-        tools?.length || 0,
-        "tools for OpenAI",
-      );
 
       // Use the primary OpenAI interface
       const openaiRequest: ChatCompletionRequest = {
@@ -2183,6 +2097,7 @@ class LocalLLMContentGenerator implements ContentGenerator {
         temperature: request.config?.temperature ?? 0.1,
         max_tokens: request.config?.maxOutputTokens ?? this.maxOutputTokens,
         stream: true,
+        stream_options: { include_usage: true }, // Get usage data in streaming response
         ...(tools && tools.length > 0 ? { tools } : {}),
       };
 
@@ -2235,7 +2150,11 @@ class LocalLLMContentGenerator implements ContentGenerator {
 
         if (delta || tool_calls.length > 0) {
           // Convert tool_calls to Gemini functionCalls format
-          const functionCalls = tool_calls.map((tc: any) => {
+          // Also build parts with functionCall + thoughtSignature for history
+          const functionCalls: any[] = [];
+          const functionCallParts: Part[] = [];
+
+          for (const tc of tool_calls as any[]) {
             let args = {};
             try {
               args = tc.function?.arguments
@@ -2248,18 +2167,37 @@ class LocalLLMContentGenerator implements ContentGenerator {
               );
               args = {};
             }
-            return {
+
+            const fcall = {
+              id: tc.id,
               name: tc.function?.name || tc.name,
               args: args,
             };
-          });
+            functionCalls.push(fcall);
+
+            // Create Part with functionCall and thoughtSignature (Gemini 3 Pro)
+            const part: Part = {
+              functionCall: fcall,
+            };
+            // Extract thought_signature from tool_call if present (Gemini 3 Pro OpenAI compat)
+            // Format: tc.extra_content.google.thought_signature
+            const thoughtSig = tc.extra_content?.google?.thought_signature;
+            if (thoughtSig) {
+              part.thoughtSignature = thoughtSig;
+            }
+            functionCallParts.push(part);
+          }
+
+          // Build parts: text parts + functionCall parts
+          const parts: Part[] = delta ? [{ text: delta }] : [];
+          parts.push(...functionCallParts);
 
           const geminiResponse: GenerateContentResponse = {
             response: {
               candidates: [
                 {
                   content: {
-                    parts: delta ? [{ text: delta }] : [],
+                    parts: parts as any,
                     role: "model",
                   },
                   finishReason: "",
@@ -2269,7 +2207,7 @@ class LocalLLMContentGenerator implements ContentGenerator {
             candidates: [
               {
                 content: {
-                  parts: delta ? [{ text: delta }] : [],
+                  parts: parts as any,
                   role: "model",
                 },
                 finishReason: "",
@@ -2432,10 +2370,11 @@ export async function createContentGenerator(
 
   // Load LLM provider config from environment using llmProviderLoader
   const { loadProviderConfig } = await import("../config/llmProviderLoader.js");
-  const providerConfig = loadProviderConfig();
+  const providerFromConfig = actualConfig.getProvider();
+  const providerConfig = loadProviderConfig(providerFromConfig);
 
   // Start MLX supervisor if using local-mlx provider
-  const provider = process.env["LLM_PROVIDER"] || "local-mlx";
+  const provider = providerFromConfig || process.env["LLM_PROVIDER"] || "local-mlx";
   if (provider === "local-mlx") {
     await ensureMlxSupervisor(providerConfig.baseURL);
   }
@@ -2445,6 +2384,9 @@ export async function createContentGenerator(
     process.env["MODEL"] ||
     providerConfig.defaultModel ||
     actualConfig.getModel();
+
+  // Update config with selected model so tokenLimit() uses correct limit
+  actualConfig.setModel(selectedModel);
 
   console.log(`📡 Using LLM provider: ${providerConfig.name}`);
   console.log(

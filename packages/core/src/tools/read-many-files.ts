@@ -323,6 +323,23 @@ ${finalExclusionPatternsForDescription
 
     const sortedFiles = Array.from(filesToConsider).sort();
 
+    // Safety check: prevent CLI freeze by limiting file count
+    const MAX_FILES_LIMIT = 50;
+    if (sortedFiles.length > MAX_FILES_LIMIT) {
+      const errorMessage = `Pattern matched ${sortedFiles.length} files, which exceeds the limit of ${MAX_FILES_LIMIT}. ` +
+        `Reading too many files at once will freeze the CLI. ` +
+        `Please use more specific patterns (e.g., 'src/components/*.tsx' instead of '**/*.tsx') ` +
+        `or list individual files. First 10 matches: ${sortedFiles.slice(0, 10).map(f => path.relative(this.config.getTargetDir(), f)).join(', ')}`;
+      return {
+        llmContent: errorMessage,
+        returnDisplay: `## Too Many Files\n\n${errorMessage}`,
+        error: {
+          message: errorMessage,
+          type: ToolErrorType.READ_MANY_FILES_SEARCH_ERROR,
+        },
+      };
+    }
+
     const fileProcessingPromises = sortedFiles.map(
       async (filePath): Promise<FileProcessingResult> => {
         try {

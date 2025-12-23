@@ -225,6 +225,20 @@ export class ApiErrorEvent implements BaseTelemetryEvent {
   }
 }
 
+/**
+ * API call source types for distinguishing main conversation from auxiliary calls
+ */
+export type ApiCallSource =
+  | "main" // Main user conversation
+  | "next_speaker" // Next speaker checker
+  | "compression" // Chat history compression
+  | "loop_detection" // Loop detection check
+  | "summarization" // Tool output summarization
+  | "tool_result" // Tool result processing (function response)
+  | "edit_corrector" // Edit correction/validation
+  | "llm_edit_fixer" // LLM edit fixer
+  | "unknown"; // Default/unknown source
+
 export class ApiResponseEvent implements BaseTelemetryEvent {
   "event.name": "api_response";
   "event.timestamp": string;
@@ -241,6 +255,7 @@ export class ApiResponseEvent implements BaseTelemetryEvent {
   response_text?: string;
   prompt_id: string;
   auth_type?: string;
+  source: ApiCallSource;
 
   constructor(
     model: string,
@@ -250,6 +265,7 @@ export class ApiResponseEvent implements BaseTelemetryEvent {
     usage_data?: GenerateContentResponseUsageMetadata,
     response_text?: string,
     error?: string,
+    source: ApiCallSource = "unknown",
   ) {
     this["event.name"] = "api_response";
     this["event.timestamp"] = new Date().toISOString();
@@ -266,6 +282,7 @@ export class ApiResponseEvent implements BaseTelemetryEvent {
     this.error = error;
     this.prompt_id = prompt_id;
     this.auth_type = auth_type;
+    this.source = source;
   }
 }
 

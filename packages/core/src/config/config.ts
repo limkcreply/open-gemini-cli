@@ -195,6 +195,7 @@ export interface ConfigParameters {
   includeDirectories?: string[];
   bugCommand?: BugCommandSettings;
   model: string;
+  provider?: string;
   extensionContextFilePaths?: string[];
   maxSessionTurns?: number;
   experimentalZedIntegration?: boolean;
@@ -262,7 +263,8 @@ export class Config {
   private readonly proxy: string | undefined;
   private readonly cwd: string;
   private readonly bugCommand: BugCommandSettings | undefined;
-  private readonly model: string;
+  private model: string;
+  private readonly provider: string | undefined;
   private readonly extensionContextFilePaths: string[];
   private readonly noBrowser: boolean;
   private readonly folderTrustFeature: boolean;
@@ -450,6 +452,8 @@ export class Config {
     );
     // Only assign to instance properties after successful initialization
     this.contentGeneratorConfig = newContentGeneratorConfig;
+    // Sync model - createContentGenerator may have updated this.model from provider config
+    this.contentGeneratorConfig.model = this.model;
 
     // Reset the session flag since we're explicitly changing auth and using default model
     this.inFallbackMode = false;
@@ -475,7 +479,12 @@ export class Config {
     return this.contentGeneratorConfig?.model || this.model;
   }
 
+  getProvider(): string | undefined {
+    return this.provider;
+  }
+
   setModel(newModel: string): void {
+    this.model = newModel;
     if (this.contentGeneratorConfig) {
       this.contentGeneratorConfig.model = newModel;
     }

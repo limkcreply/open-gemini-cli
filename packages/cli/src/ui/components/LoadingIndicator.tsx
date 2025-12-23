@@ -20,6 +20,7 @@ interface LoadingIndicatorProps {
   rightContent?: React.ReactNode;
   thought?: ThoughtSummary | null;
   streamingOutputTokens?: number; // Live token count during streaming
+  promptTokenCount?: number; // Input/context tokens (like Claude's ↑ display)
   model?: string;
 }
 
@@ -29,6 +30,7 @@ export const LoadingIndicator: React.FC<LoadingIndicatorProps> = ({
   rightContent,
   thought,
   streamingOutputTokens,
+  promptTokenCount,
 }) => {
   const streamingState = useStreamingContext();
   const { columns: terminalWidth } = useTerminalSize();
@@ -48,20 +50,19 @@ export const LoadingIndicator: React.FC<LoadingIndicatorProps> = ({
     return `${mins}m ${secs}s`;
   };
 
-  // Format token usage (streaming output tokens - live count as LLM responds)
-  const tokenInfo = streamingOutputTokens
-    ? (() => {
-        const tokensFormatted =
-          streamingOutputTokens >= 1000
-            ? `${(streamingOutputTokens / 1000).toFixed(1)}k`
-            : streamingOutputTokens.toString();
-        return `↓ ${tokensFormatted} tokens`;
-      })()
-    : "";
+  // Format token counts like Claude: ↑ input · ↓ output
+  const formatTokens = (count: number) =>
+    count >= 1000 ? `${(count / 1000).toFixed(1)}k` : count.toString();
+
+  const inputInfo = promptTokenCount ? `↑ ${formatTokens(promptTokenCount)}` : "";
+  const outputInfo = streamingOutputTokens ? `↓ ${formatTokens(streamingOutputTokens)}` : "";
+
+  const tokenInfo = [inputInfo, outputInfo].filter(Boolean).join(" · ");
+  const tokenDisplay = tokenInfo ? `${tokenInfo} tokens` : "";
 
   const cancelAndTimerContent =
     streamingState !== StreamingState.WaitingForConfirmation
-      ? `(esc to interrupt · ctrl+t to show todos · ${formatTime(elapsedTime)}${tokenInfo ? ` · ${tokenInfo}` : ""})`
+      ? `(esc to interrupt · ctrl+t to show todos · ${formatTime(elapsedTime)}${tokenDisplay ? ` · ${tokenDisplay}` : ""})`
       : null;
 
   return (

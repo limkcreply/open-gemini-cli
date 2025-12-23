@@ -10,6 +10,10 @@ import type { ServerKaiDexStreamEvent } from "../core/turn.js";
 import { KaiDexEventType } from "../core/turn.js";
 import { logLoopDetected } from "../telemetry/loggers.js";
 import { LoopDetectedEvent, LoopType } from "../telemetry/types.js";
+import {
+  setApiCallSource,
+  resetApiCallSource,
+} from "../telemetry/uiTelemetry.js";
 import type { Config } from "../config/config.js";
 import { DEFAULT_KAIDEX_FLASH_MODEL } from "../config/config.js";
 import {
@@ -402,6 +406,8 @@ Please analyze the conversation history to determine the possibility that the co
     };
     let result;
     try {
+      // Mark loop detection call so it doesn't update UI token count
+      setApiCallSource("loop_detection");
       result = await this.config
         .getKaiDexClient()
         .generateJson(
@@ -412,7 +418,9 @@ Please analyze the conversation history to determine the possibility that the co
           {},
           "loopDetection",
         );
+      resetApiCallSource();
     } catch (e) {
+      resetApiCallSource();
       // Do nothing, treat it as a non-loop.
       this.config.getDebugMode() ? console.error(e) : console.debug(e);
       return false;

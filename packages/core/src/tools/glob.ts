@@ -160,6 +160,23 @@ class GlobToolInvocation extends BaseToolInvocation<
 
       const entries = allEntries;
 
+      // Safety limit: prevent CLI freeze from overly broad patterns
+      const MAX_FILES_LIMIT = 500;
+      if (entries.length > MAX_FILES_LIMIT) {
+        const errorMessage =
+          `Pattern "${this.params.pattern}" matched ${entries.length} files, which exceeds the limit of ${MAX_FILES_LIMIT}. ` +
+          `Processing too many files will freeze the CLI. ` +
+          `Please use more specific patterns (e.g., 'src/**/*.ts' instead of '**/*').`;
+        return {
+          llmContent: errorMessage,
+          returnDisplay: `Too many files (${entries.length} > ${MAX_FILES_LIMIT})`,
+          error: {
+            message: errorMessage,
+            type: ToolErrorType.GLOB_EXECUTION_ERROR,
+          },
+        };
+      }
+
       // Apply git-aware filtering if enabled and in git repository
       let filteredEntries = entries;
       let gitIgnoredCount = 0;

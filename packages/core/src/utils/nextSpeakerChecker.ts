@@ -5,11 +5,14 @@
  */
 
 import type { Content } from "@google/genai";
-import { DEFAULT_KAIDEX_FLASH_MODEL } from "../config/models.js";
 import type { KaiDexClient } from "../core/client.js";
 import type { KaiDexChat } from "../core/kaidexChat.js";
 import { isFunctionResponse } from "./messageInspectors.js";
 import { googleContentArrayToKaidex } from "./typeAdapters.js";
+import {
+  setApiCallSource,
+  resetApiCallSource,
+} from "../telemetry/uiTelemetry.js";
 
 const CHECK_PROMPT = `Analyze *only* the content and structure of your immediately preceding response (your last turn in the conversation history). Based *strictly* on that response, determine who should logically speak next: the 'user' or the 'model' (you).
 
@@ -29,21 +32,8 @@ export async function checkNextSpeaker(
   chat: KaiDexChat,
   geminiClient: KaiDexClient,
   abortSignal: AbortSignal,
+  model: string,
 ): Promise<NextSpeakerResponse | null> {
-  const debugLog = (msg: string) => {
-    if (!process.env["DEBUG_CHECKNEXTSPEAKER"]) return;
-    const fs = require("fs");
-    if (!(global as any).__kaidex_debug_log_file) {
-      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-      (global as any).__kaidex_debug_log_file =
-        `/tmp/kaidex_checknext_${timestamp}.log`;
-    }
-    fs.appendFileSync((global as any).__kaidex_debug_log_file, `${msg}\n`);
-    console.log(msg);
-  };
-
-  debugLog(`checkNextSpeaker called`);
-
   // We need to capture the curated history because there are many moments when the model will return invalid turns
   // that when passed back up to the endpoint will break subsequent calls. An example of this is when the model decides
   // to respond with an empty part collection if you were to send that message back to the server it will respond with
@@ -52,7 +42,6 @@ export async function checkNextSpeaker(
 
   // Ensure there's a model response to analyze
   if (curatedHistory.length === 0) {
-    console.log(`curatedHistory is empty, returning null`);
     // Cannot determine next speaker if history is empty.
     return null;
   }
@@ -62,13 +51,10 @@ export async function checkNextSpeaker(
   // This case should ideally be caught by the curatedHistory.length check earlier,
   // but as a safeguard:
   if (comprehensiveHistory.length === 0) {
-    console.log(`comprehensiveHistory is empty, returning null`);
     return null;
   }
   const lastComprehensiveMessage =
     comprehensiveHistory[comprehensiveHistory.length - 1];
-
-  console.log(`lastComprehensiveMessage role: ${lastComprehensiveMessage?.role}`);
 
   // If the last message is a user message containing only function_responses,
   // then the model should speak next.
@@ -76,7 +62,6 @@ export async function checkNextSpeaker(
     lastComprehensiveMessage &&
     isFunctionResponse(lastComprehensiveMessage)
   ) {
-    debugLog(`Last message is function response, model should speak next`);
     return {
       reasoning:
         "The last message was a function response, so the model should speak next.",
@@ -90,7 +75,6 @@ export async function checkNextSpeaker(
     lastComprehensiveMessage.parts &&
     lastComprehensiveMessage.parts.length === 0
   ) {
-    console.log(`Last model message has empty parts, model should speak next`);
     lastComprehensiveMessage.parts.push({ text: "" });
     return {
       reasoning:
@@ -103,7 +87,6 @@ export async function checkNextSpeaker(
 
   const lastMessage = curatedHistory[curatedHistory.length - 1];
   if (!lastMessage || lastMessage.role !== "model") {
-    console.log(`Last message not from model, returning null`);
     // Cannot determine next speaker if the last turn wasn't from the model
     // or if history is empty.
     return null;
@@ -114,23 +97,22 @@ export async function checkNextSpeaker(
     { role: "user", parts: [{ text: CHECK_PROMPT }] },
   ];
 
-  debugLog(`Preparing to check next speaker with ${contents.length} messages`);
-
   const kaidexContents = googleContentArrayToKaidex(contents);
-  debugLog(`Converted to kaidex format`);
 
   try {
+    // Mark this as auxiliary call so it doesn't update UI token count
+    setApiCallSource("next_speaker");
     const response = await geminiClient.generateContent(
       kaidexContents,
       {}, // empty config - plain text response
       abortSignal,
-      DEFAULT_KAIDEX_FLASH_MODEL,
+      model,
     );
+    resetApiCallSource();
 
     // Extract text from response
     const responseText =
       response.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    debugLog(`Response text: ${responseText}`);
 
     // Parse plain text response - extract "user" or "model"
     const normalizedText = responseText.trim().toLowerCase();
@@ -153,14 +135,12 @@ export async function checkNextSpeaker(
         reasoning: `Plain text response indicated: ${nextSpeaker}`,
         next_speaker: nextSpeaker,
       };
-      debugLog(`Next speaker determined: ${nextSpeaker}`);
       return result;
     }
 
-    debugLog(`Could not determine next speaker from response`);
     return null;
   } catch (error) {
-    console.log(`Error checking next speaker: ${error}`);
+    resetApiCallSource(); // Ensure source is reset even on error
     console.warn(
       "Failed to talk to KaiDex endpoint when seeing if conversation should continue.",
       error,

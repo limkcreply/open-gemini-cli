@@ -41,6 +41,10 @@ import {
 import { handleFallback } from "../fallback/handler.js";
 import { isFunctionResponse } from "../utils/messageInspectors.js";
 import { partListUnionToString } from "./kaidexRequest.js";
+import {
+  setApiCallSource,
+  resetApiCallSource,
+} from "../telemetry/uiTelemetry.js";
 
 export enum StreamEventType {
   /** A regular content chunk from the API. */
@@ -314,19 +318,32 @@ export class KaiDexChat {
         );
       };
 
-      response = (await retryWithBackoff(apiCall, {
-        shouldRetry: (error: unknown) => {
-          // Check for known error messages and codes.
-          if (error instanceof Error && error.message) {
-            if (isSchemaDepthError(error.message)) return false;
-            if (error.message.includes("429")) return true;
-            if (error.message.match(/5\d{2}/)) return true;
-          }
-          return false; // Don't retry other errors by default
-        },
-        onPersistent429: onPersistent429Callback,
-        authType: this.config.getContentGeneratorConfig()?.authType,
-      })) as any;
+      // Tag function responses (tool results) so they don't update UI context %
+      // Tool results have smaller context and would cause UI bouncing
+      const isFunctionResp = isFunctionResponse(userContent);
+      if (isFunctionResp) {
+        setApiCallSource("tool_result");
+      }
+
+      try {
+        response = (await retryWithBackoff(apiCall, {
+          shouldRetry: (error: unknown) => {
+            // Check for known error messages and codes.
+            if (error instanceof Error && error.message) {
+              if (isSchemaDepthError(error.message)) return false;
+              if (error.message.includes("429")) return true;
+              if (error.message.match(/5\d{2}/)) return true;
+            }
+            return false; // Don't retry other errors by default
+          },
+          onPersistent429: onPersistent429Callback,
+          authType: this.config.getContentGeneratorConfig()?.authType,
+        })) as any;
+      } finally {
+        if (isFunctionResp) {
+          resetApiCallSource();
+        }
+      }
 
       this.sendPromise = (async () => {
         const outputContent = response.candidates?.[0]?.content;
@@ -542,6 +559,13 @@ export class KaiDexChat {
       );
     };
 
+    // Tag function responses (tool results) so they don't update UI context %
+    // Tool results have smaller context and would cause UI bouncing
+    const isFunctionResp = isFunctionResponse(userContent);
+    if (isFunctionResp) {
+      setApiCallSource("tool_result");
+    }
+
     const streamResponse = await retryWithBackoff(apiCall as any, {
       shouldRetry: (error: unknown) => {
         if (error instanceof Error && error.message) {
@@ -555,7 +579,22 @@ export class KaiDexChat {
       authType: this.config.getContentGeneratorConfig()?.authType,
     });
 
-    return this.processStreamResponse(streamResponse as any, userContent);
+    // Wrap generator to reset source AFTER stream is fully consumed
+    // (logging happens during consumption, so source must stay set until then)
+    const innerGenerator = this.processStreamResponse(streamResponse as any, userContent);
+
+    if (!isFunctionResp) {
+      return innerGenerator;
+    }
+
+    // Wrapper that resets source after generator exhausts
+    return (async function* () {
+      try {
+        yield* innerGenerator;
+      } finally {
+        resetApiCallSource();
+      }
+    })();
   }
 
   /**
@@ -585,9 +624,34 @@ export class KaiDexChat {
     const history = curated
       ? extractCuratedHistory(this.history)
       : this.history;
-    // Deep copy the history to avoid mutating the history outside of the
-    // chat session.
-    return structuredClone(history);
+    try {
+      // Deep copy the history to avoid mutating the history outside of the
+      // chat session.
+      return structuredClone(history);
+    } catch (error) {
+      // structuredClone can throw if any non-cloneable value (e.g., a function)
+      // made it into history. Fall back to a JSON-based clone so compression
+      // and other callers can continue instead of failing with DataCloneError.
+      console.warn(
+        "structuredClone failed for chat history; falling back to JSON clone.",
+        error,
+      );
+      return JSON.parse(
+        JSON.stringify(history, (_key, value) => {
+          if (typeof value === "function") {
+            return "[function]";
+          }
+          if (value instanceof Error) {
+            return {
+              name: value.name,
+              message: value.message,
+              stack: value.stack,
+            };
+          }
+          return value;
+        }),
+      );
+    }
   }
 
   /**

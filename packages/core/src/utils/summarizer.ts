@@ -11,6 +11,10 @@ import type { KaiDexClient } from "../core/client.js";
 import { DEFAULT_KAIDEX_FLASH_LITE_MODEL } from "../config/models.js";
 import { getResponseText, partToString } from "./partUtils.js";
 import { googleContentArrayToKaidex } from "./typeAdapters.js";
+import {
+  setApiCallSource,
+  resetApiCallSource,
+} from "../telemetry/uiTelemetry.js";
 
 /**
  * A function that summarizes the result of a tool execution.
@@ -80,14 +84,18 @@ export async function summarizeToolOutput(
     maxOutputTokens,
   };
   try {
+    // Mark summarization call so it doesn't update UI token count
+    setApiCallSource("summarization");
     const parsedResponse = (await geminiClient.generateContent(
       googleContentArrayToKaidex(contents),
       toolOutputSummarizerConfig,
       abortSignal,
       DEFAULT_KAIDEX_FLASH_LITE_MODEL,
     )) as unknown as GenerateContentResponse;
+    resetApiCallSource();
     return getResponseText(parsedResponse) || textToSummarize;
   } catch (error) {
+    resetApiCallSource();
     console.error("Failed to summarize tool output.", error);
     return textToSummarize;
   }

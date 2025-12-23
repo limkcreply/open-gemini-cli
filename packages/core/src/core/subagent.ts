@@ -436,15 +436,29 @@ export class SubAgentScope {
           promptId,
         );
 
-        const functionCalls: FunctionCall[] = [];
+        // Track function calls with their thoughtSignatures (Gemini 3 Pro requirement)
+        const functionCallsWithSignatures: Array<{
+          functionCall: FunctionCall;
+          thoughtSignature?: string;
+        }> = [];
         let textResponse = "";
         for await (const resp of responseStream) {
           if (abortController.signal.aborted) return;
-          if (resp.type === StreamEventType.CHUNK && resp.value.functionCalls) {
-            functionCalls.push(...(resp.value.functionCalls as any));
-          }
-          if (resp.type === StreamEventType.CHUNK && resp.value.text) {
-            textResponse += resp.value.text;
+          if (resp.type === StreamEventType.CHUNK) {
+            // Extract from parts to preserve thoughtSignature
+            const parts =
+              (resp.value as any).candidates?.[0]?.content?.parts ?? [];
+            for (const part of parts) {
+              if (part.functionCall) {
+                functionCallsWithSignatures.push({
+                  functionCall: part.functionCall as FunctionCall,
+                  thoughtSignature: part.thoughtSignature as string | undefined,
+                });
+              }
+            }
+            if (resp.value.text) {
+              textResponse += resp.value.text;
+            }
           }
         }
 
@@ -458,9 +472,9 @@ export class SubAgentScope {
           break;
         }
 
-        if (functionCalls.length > 0) {
+        if (functionCallsWithSignatures.length > 0) {
           currentMessages = await this.processFunctionCalls(
-            functionCalls,
+            functionCallsWithSignatures,
             abortController,
             promptId,
           );
@@ -482,7 +496,7 @@ export class SubAgentScope {
           }
         }
 
-        if (functionCalls.length === 0) {
+        if (functionCallsWithSignatures.length === 0) {
           // Model stopped calling tools. Check if goal is met.
           if (
             !this.outputConfig ||
@@ -534,13 +548,16 @@ export class SubAgentScope {
    *          which are then used to update the chat history.
    */
   private async processFunctionCalls(
-    functionCalls: FunctionCall[],
+    functionCallsWithSignatures: Array<{
+      functionCall: FunctionCall;
+      thoughtSignature?: string;
+    }>,
     abortController: AbortController,
     promptId: string,
   ): Promise<Content[]> {
     const toolResponseParts: Part[] = [];
 
-    for (const functionCall of functionCalls) {
+    for (const { functionCall, thoughtSignature } of functionCallsWithSignatures) {
       if (this.onMessage) {
         const args = JSON.stringify(functionCall.args ?? {});
         // Truncate arguments
@@ -565,6 +582,7 @@ export class SubAgentScope {
         args: (functionCall.args ?? {}) as Record<string, unknown>,
         isClientInitiated: true,
         prompt_id: promptId,
+        thoughtSignature,
       };
 
       let toolResponse;
@@ -600,7 +618,7 @@ export class SubAgentScope {
       }
     }
     // If all tool calls failed, inform the model so it can re-evaluate.
-    if (functionCalls.length > 0 && toolResponseParts.length === 0) {
+    if (functionCallsWithSignatures.length > 0 && toolResponseParts.length === 0) {
       toolResponseParts.push({
         text: "All tool calls failed. Please analyze the errors and try an alternative approach.",
       });

@@ -84,6 +84,7 @@ describe("checkNextSpeaker", () => {
       chatInstance,
       mockKaiDexClient,
       abortSignal,
+      DEFAULT_KAIDEX_FLASH_MODEL,
     );
     expect(result).toBeNull();
     expect(mockKaiDexClient.generateJson).not.toHaveBeenCalled();
@@ -97,6 +98,7 @@ describe("checkNextSpeaker", () => {
       chatInstance,
       mockKaiDexClient,
       abortSignal,
+      DEFAULT_KAIDEX_FLASH_MODEL,
     );
     expect(result).toBeNull();
     expect(mockKaiDexClient.generateJson).not.toHaveBeenCalled();
@@ -116,6 +118,7 @@ describe("checkNextSpeaker", () => {
       chatInstance,
       mockKaiDexClient,
       abortSignal,
+      DEFAULT_KAIDEX_FLASH_MODEL,
     );
     expect(result).toEqual(mockApiResponse);
     expect(mockKaiDexClient.generateJson).toHaveBeenCalledTimes(1);
@@ -135,6 +138,7 @@ describe("checkNextSpeaker", () => {
       chatInstance,
       mockKaiDexClient,
       abortSignal,
+      DEFAULT_KAIDEX_FLASH_MODEL,
     );
     expect(result).toEqual(mockApiResponse);
   });
@@ -153,6 +157,7 @@ describe("checkNextSpeaker", () => {
       chatInstance,
       mockKaiDexClient,
       abortSignal,
+      DEFAULT_KAIDEX_FLASH_MODEL,
     );
     expect(result).toEqual(mockApiResponse);
   });
@@ -172,6 +177,7 @@ describe("checkNextSpeaker", () => {
       chatInstance,
       mockKaiDexClient,
       abortSignal,
+      DEFAULT_KAIDEX_FLASH_MODEL,
     );
     expect(result).toBeNull();
     consoleWarnSpy.mockRestore();
@@ -189,6 +195,7 @@ describe("checkNextSpeaker", () => {
       chatInstance,
       mockKaiDexClient,
       abortSignal,
+      DEFAULT_KAIDEX_FLASH_MODEL,
     );
     expect(result).toBeNull();
   });
@@ -206,6 +213,7 @@ describe("checkNextSpeaker", () => {
       chatInstance,
       mockKaiDexClient,
       abortSignal,
+      DEFAULT_KAIDEX_FLASH_MODEL,
     );
     expect(result).toBeNull();
   });
@@ -223,25 +231,24 @@ describe("checkNextSpeaker", () => {
       chatInstance,
       mockKaiDexClient,
       abortSignal,
+      DEFAULT_KAIDEX_FLASH_MODEL,
     );
     expect(result).toBeNull();
   });
 
-  it("should call generateJson with DEFAULT_KAIDEX_FLASH_MODEL", async () => {
+  it("should call generateContent with the passed model", async () => {
     (chatInstance.getHistory as Mock).mockReturnValue([
       { role: "model", parts: [{ text: "Some model output." }] },
     ] as Content[]);
-    const mockApiResponse: NextSpeakerResponse = {
-      reasoning: "Model made a statement, awaiting user input.",
-      next_speaker: "user",
-    };
-    (mockKaiDexClient.generateJson as Mock).mockResolvedValue(mockApiResponse);
+    (mockKaiDexClient.generateContent as Mock).mockResolvedValue({
+      candidates: [{ content: { parts: [{ text: "user" }] } }],
+    });
 
-    await checkNextSpeaker(chatInstance, mockKaiDexClient, abortSignal);
+    await checkNextSpeaker(chatInstance, mockKaiDexClient, abortSignal, DEFAULT_KAIDEX_FLASH_MODEL);
 
-    expect(mockKaiDexClient.generateJson).toHaveBeenCalled();
-    const generateJsonCall = (mockKaiDexClient.generateJson as Mock).mock
+    expect(mockKaiDexClient.generateContent).toHaveBeenCalled();
+    const generateContentCall = (mockKaiDexClient.generateContent as Mock).mock
       .calls[0];
-    expect(generateJsonCall[3]).toBe(DEFAULT_KAIDEX_FLASH_MODEL);
+    expect(generateContentCall[3]).toBe(DEFAULT_KAIDEX_FLASH_MODEL);
   });
 });

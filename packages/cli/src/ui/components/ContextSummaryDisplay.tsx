@@ -18,6 +18,10 @@ interface ContextSummaryDisplayProps {
   blockedMcpServers?: Array<{ name: string; extensionName: string }>;
   showToolDescriptions?: boolean;
   ideContext?: IdeContext;
+  lastCompression?: {
+    originalTokenCount: number;
+    newTokenCount: number;
+  } | null;
 }
 
 export const ContextSummaryDisplay: React.FC<ContextSummaryDisplayProps> = ({
@@ -27,6 +31,7 @@ export const ContextSummaryDisplay: React.FC<ContextSummaryDisplayProps> = ({
   blockedMcpServers,
   showToolDescriptions,
   ideContext,
+  lastCompression,
 }) => {
   const { columns: terminalWidth } = useTerminalSize();
   const isNarrow = isNarrowWidth(terminalWidth);
@@ -94,7 +99,18 @@ export const ContextSummaryDisplay: React.FC<ContextSummaryDisplayProps> = ({
     return text;
   })();
 
-  const summaryParts = [openFilesText, kaidexMdText, mcpText].filter(Boolean);
+  const compressionText = (() => {
+    if (!lastCompression) {
+      return "";
+    }
+    const { originalTokenCount, newTokenCount } = lastCompression;
+    const reduction = Math.round(
+      ((originalTokenCount - newTokenCount) / originalTokenCount) * 100,
+    );
+    return `Compressed: ${originalTokenCount}→${newTokenCount} (-${reduction}%)`;
+  })();
+
+  const summaryParts = [openFilesText, kaidexMdText, mcpText, compressionText].filter(Boolean);
 
   if (isNarrow) {
     return (

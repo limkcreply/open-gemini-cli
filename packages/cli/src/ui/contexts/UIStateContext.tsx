@@ -106,6 +106,10 @@ export interface UIState {
   updateInfo: UpdateObject | null;
   showIdeRestartPrompt: boolean;
   isRestarting: boolean;
+  lastCompression: {
+    originalTokenCount: number;
+    newTokenCount: number;
+  } | null;
 }
 
 export const UIStateContext = createContext<UIState | null>(null);

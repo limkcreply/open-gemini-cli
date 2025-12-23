@@ -90,6 +90,7 @@ export const Composer = () => {
             : uiState.currentLoadingPhrase
         }
         elapsedTime={uiState.elapsedTime}
+        promptTokenCount={uiState.sessionStats.lastPromptTokenCount}
         streamingOutputTokens={streamingOutputTokens}
         model={config.getModel()}
       />
@@ -150,6 +151,7 @@ export const Composer = () => {
                 mcpServers={config.getMcpServers()}
                 blockedMcpServers={config.getBlockedMcpServers()}
                 showToolDescriptions={uiState.showToolDescriptions}
+                lastCompression={uiState.lastCompression}
               />
             )
           )}

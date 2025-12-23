@@ -84,6 +84,8 @@ export interface ToolCallRequestInfo {
   args: Record<string, unknown>;
   isClientInitiated: boolean;
   prompt_id: string;
+  // Gemini 3 Pro: encrypted reasoning state that must be passed back with function responses
+  thoughtSignature?: string;
 }
 
 export interface ToolCallResponseInfo {
@@ -279,21 +281,22 @@ export class Turn {
         }
 
         // Handle function calls (requesting tool execution)
-        const functionCalls = resp.functionCalls ?? [];
-        console.log(
-          functionCalls.length,
+        // Extract from parts to get thoughtSignature (Gemini 3 Pro requirement)
+        const parts = resp.candidates?.[0]?.content?.parts ?? [];
+        const functionCallParts = parts.filter(
+          (p: any) => p.functionCall !== undefined,
         );
-        for (const fnCall of functionCalls) {
-          console.log(
-            fnCall.name,
-            "args:",
-            fnCall.args,
-          );
-          const event = this.handlePendingFunctionCall(fnCall);
+        console.log(functionCallParts.length);
+        for (const part of functionCallParts) {
+          const fnCall = (part as any).functionCall as FunctionCall;
+          const thoughtSignature = (part as any).thoughtSignature as
+            | string
+            | undefined;
+          console.log(fnCall.name, "args:", fnCall.args);
+          const event = this.handlePendingFunctionCall(fnCall, thoughtSignature);
           if (event) {
             yield event;
-            console.log(
-            );
+            console.log();
           }
         }
 
@@ -366,6 +369,7 @@ export class Turn {
 
   private handlePendingFunctionCall(
     fnCall: FunctionCall,
+    thoughtSignature?: string,
   ): ServerKaiDexStreamEvent | null {
     const callId =
       fnCall.id ??
@@ -379,6 +383,7 @@ export class Turn {
       args,
       isClientInitiated: false,
       prompt_id: this.prompt_id,
+      thoughtSignature,
     };
 
     this.pendingToolCalls.push(toolCallRequest);

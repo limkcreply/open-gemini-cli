@@ -157,6 +157,7 @@ When requested to perform tasks like fixing bugs, adding features, refactoring, 
 
 ## Tool Usage
 - **File Paths:** Always use absolute paths when referring to files with tools like '${ReadFileTool.Name}' or '${WriteFileTool.Name}'. Relative paths are not supported. You must provide an absolute path.
+- **ReadManyFiles Caution:** Before using '${ReadManyFilesTool.Name}' with broad glob patterns (like '**/*' or '**/*.ts'), ALWAYS use '${GlobTool.Name}' first to count matching files. If the count exceeds 50 files, narrow your pattern or specify individual files. Reading too many files at once will freeze the CLI.
 - **Parallelism:** Execute multiple independent tool calls in parallel when feasible (i.e. searching the codebase).
 - **Command Execution:** Use the '${ShellTool.Name}' tool for running shell commands, remembering the safety rule to explain modifying commands first.
 - **Background Processes:** Use background processes (via \`&\`) for commands that are unlikely to stop on their own, e.g. \`node server.js &\`. If unsure, ask the user.

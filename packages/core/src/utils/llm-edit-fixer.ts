@@ -9,6 +9,10 @@ import { type KaiDexClient } from "../core/client.js";
 import { LruCache } from "./LruCache.js";
 import { DEFAULT_KAIDEX_FLASH_MODEL } from "../config/models.js";
 import { googleContentArrayToKaidex } from "./typeAdapters.js";
+import {
+  setApiCallSource,
+  resetApiCallSource,
+} from "../telemetry/uiTelemetry.js";
 
 const MAX_CACHE_SIZE = 50;
 
@@ -130,17 +134,22 @@ ${userPrompt}`,
     },
   ];
 
-  const result = (await geminiClient.generateJson(
-    googleContentArrayToKaidex(contents),
-    SearchReplaceEditSchema,
-    abortSignal,
-    DEFAULT_KAIDEX_FLASH_MODEL,
-    {}, // config
-    "llm-edit-fixer", // caller
-  )) as unknown as SearchReplaceEdit;
+  setApiCallSource("llm_edit_fixer");
+  try {
+    const result = (await geminiClient.generateJson(
+      googleContentArrayToKaidex(contents),
+      SearchReplaceEditSchema,
+      abortSignal,
+      DEFAULT_KAIDEX_FLASH_MODEL,
+      {}, // config
+      "llm-edit-fixer", // caller
+    )) as unknown as SearchReplaceEdit;
 
-  editCorrectionWithInstructionCache.set(cacheKey, result);
-  return result;
+    editCorrectionWithInstructionCache.set(cacheKey, result);
+    return result;
+  } finally {
+    resetApiCallSource();
+  }
 }
 
 export function resetLlmEditFixerCaches_TEST_ONLY() {

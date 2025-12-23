@@ -54,6 +54,7 @@ const logger = {
 
 export interface CliArgs {
   model: string | undefined;
+  provider: string | undefined;
   sandbox: boolean | string | undefined;
   sandboxImage: string | undefined;
   debug: boolean | undefined;
@@ -97,6 +98,11 @@ export async function parseArguments(settings: Settings): Promise<CliArgs> {
           type: "string",
           description: `Model`,
           default: process.env["GEMINI_MODEL"],
+        })
+        .option("provider", {
+          type: "string",
+          description: `LLM Provider (e.g., gpt-5, claude-sonnet, llamacpp, local-mlx)`,
+          default: process.env["LLM_PROVIDER"],
         })
         .option("prompt", {
           alias: "p",
@@ -330,6 +336,11 @@ export async function parseArguments(settings: Settings): Promise<CliArgs> {
     process.exit(0);
   }
 
+  // Set LLM_PROVIDER env var from CLI flag if provided
+  if (result["provider"]) {
+    process.env["LLM_PROVIDER"] = result["provider"] as string;
+  }
+
   // The import format is now only controlled by settings.memoryImportFormat
   // We no longer accept it as a CLI argument
   return result as unknown as CliArgs;
@@ -385,6 +396,9 @@ export async function loadCliConfig(
   argv: CliArgs,
   cwd: string = process.cwd(),
 ): Promise<Config> {
+  const provider =
+    argv.provider || process.env["LLM_PROVIDER"];
+
   const debugMode =
     argv.debug ||
     [process.env["DEBUG"], process.env["DEBUG_MODE"]].some(
@@ -548,6 +562,11 @@ export async function loadCliConfig(
     argv.screenReader !== undefined
       ? argv.screenReader
       : (settings.ui?.accessibility?.screenReader ?? false);
+  // Make provider visible to core (and propagate to env for legacy paths)
+  if (provider) {
+    process.env["LLM_PROVIDER"] = provider;
+  }
+
   return new Config({
     sessionId,
     embeddingModel: DEFAULT_KAIDEX_EMBEDDING_MODEL,
@@ -605,6 +624,7 @@ export async function loadCliConfig(
     fileDiscoveryService: fileService,
     bugCommand: settings.advanced?.bugCommand,
     model: argv.model || settings.model?.name || DEFAULT_KAIDEX_MODEL,
+    provider,
     extensionContextFilePaths,
     maxSessionTurns: settings.model?.maxSessionTurns ?? -1,
     experimentalZedIntegration: argv.experimentalAcp || false,

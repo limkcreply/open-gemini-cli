@@ -141,6 +141,10 @@ class GrepToolInvocation extends BaseToolInvocation<
       }
 
       for (const searchDir of searchDirectories) {
+        // Check abort before each directory search
+        if (signal.aborted) {
+          return { llmContent: "Search cancelled", returnDisplay: "Cancelled" };
+        }
         const searchResult = await this.performRipgrepSearch({
           pattern: this.params.pattern,
           path: searchDir,
@@ -174,6 +178,11 @@ class GrepToolInvocation extends BaseToolInvocation<
         searchLocationDescription = `in path "${searchDirDisplay}"`;
       }
 
+      // Check abort before processing results
+      if (signal.aborted) {
+        return { llmContent: "Search cancelled", returnDisplay: "Cancelled" };
+      }
+
       if (allMatches.length === 0) {
         const noMatchMsg = `No matches found for pattern "${this.params.pattern}" ${searchLocationDescription}${this.params.include ? ` (filter: "${this.params.include}")` : ""}.`;
         return { llmContent: noMatchMsg, returnDisplay: `No matches found` };
@@ -181,18 +190,18 @@ class GrepToolInvocation extends BaseToolInvocation<
 
       const wasTruncated = allMatches.length >= totalMaxMatches;
 
-      const matchesByFile = allMatches.reduce(
-        (acc, match) => {
-          const fileKey = match.filePath;
-          if (!acc[fileKey]) {
-            acc[fileKey] = [];
-          }
-          acc[fileKey].push(match);
-          acc[fileKey].sort((a, b) => a.lineNumber - b.lineNumber);
-          return acc;
-        },
-        {} as Record<string, GrepMatch[]>,
-      );
+      // Group matches by file (without sorting inside loop - O(n) instead of O(n²))
+      const matchesByFile: Record<string, GrepMatch[]> = {};
+      for (const match of allMatches) {
+        if (!matchesByFile[match.filePath]) {
+          matchesByFile[match.filePath] = [];
+        }
+        matchesByFile[match.filePath].push(match);
+      }
+      // Sort each file's matches once at the end
+      for (const filePath in matchesByFile) {
+        matchesByFile[filePath].sort((a, b) => a.lineNumber - b.lineNumber);
+      }
 
       const matchCount = allMatches.length;
       const matchTerm = matchCount === 1 ? "match" : "matches";
@@ -206,11 +215,15 @@ class GrepToolInvocation extends BaseToolInvocation<
       llmContent += `:\n---\n`;
 
       for (const filePath in matchesByFile) {
+        // Check abort during output building
+        if (signal.aborted) {
+          return { llmContent: "Search cancelled", returnDisplay: "Cancelled" };
+        }
         llmContent += `File: ${filePath}\n`;
-        matchesByFile[filePath].forEach((match) => {
+        for (const match of matchesByFile[filePath]) {
           const trimmedLine = match.line.trim();
           llmContent += `L${match.lineNumber}: ${trimmedLine}\n`;
-        });
+        }
         llmContent += "---\n";
       }
 

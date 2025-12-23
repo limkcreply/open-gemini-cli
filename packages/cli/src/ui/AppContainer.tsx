@@ -497,6 +497,10 @@ Logging in with Google... Please restart KaiDex CLI to continue.
   }, [config, historyManager, settings.merged]);
 
   const cancelHandlerRef = useRef<() => void>(() => {});
+  const [lastCompression, setLastCompression] = useState<{
+    originalTokenCount: number;
+    newTokenCount: number;
+  } | null>(null);
 
   const {
     streamingState,
@@ -521,6 +525,7 @@ Logging in with Google... Please restart KaiDex CLI to continue.
     setModelSwitchedFromQuotaError,
     refreshStatic,
     () => cancelHandlerRef.current(),
+    setLastCompression,
   );
 
   const { messageQueue, addMessage, clearQueue, getQueuedMessagesText } =
@@ -1003,6 +1008,7 @@ Logging in with Google... Please restart KaiDex CLI to continue.
       updateInfo,
       showIdeRestartPrompt,
       isRestarting,
+      lastCompression,
     }),
     [
       historyManager.history,
@@ -1075,6 +1081,7 @@ Logging in with Google... Please restart KaiDex CLI to continue.
       showIdeRestartPrompt,
       isRestarting,
       currentModel,
+      lastCompression,
     ],
   );
 

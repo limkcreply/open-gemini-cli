@@ -142,24 +142,31 @@ export type ToolCallsUpdateHandler = (toolCalls: ToolCall[]) => void;
 
 /**
  * Formats tool output for a KaiDex FunctionResponse.
+ * For Gemini 3 Pro: includes thoughtSignature if provided (must be passed back).
  */
 function createFunctionResponsePart(
   callId: string,
   toolName: string,
   output: string,
+  thoughtSignature?: string,
 ): Part {
-  return {
+  const part: Part = {
     functionResponse: {
       name: toolName,
       response: { output, id: callId },
     },
   };
+  if (thoughtSignature) {
+    part.thoughtSignature = thoughtSignature;
+  }
+  return part;
 }
 
 export function convertToFunctionResponse(
   toolName: string,
   callId: string,
   llmContent: PartListUnion,
+  thoughtSignature?: string,
 ): Part[] {
   const contentToProcess =
     Array.isArray(llmContent) && llmContent.length === 1
@@ -167,7 +174,14 @@ export function convertToFunctionResponse(
       : llmContent;
 
   if (typeof contentToProcess === "string") {
-    return [createFunctionResponsePart(callId, toolName, contentToProcess)];
+    return [
+      createFunctionResponsePart(
+        callId,
+        toolName,
+        contentToProcess,
+        thoughtSignature,
+      ),
+    ];
   }
 
   if (Array.isArray(contentToProcess)) {
@@ -175,6 +189,7 @@ export function convertToFunctionResponse(
       callId,
       toolName,
       "Tool execution succeeded.",
+      thoughtSignature,
     );
     return [functionResponse, ...toParts(contentToProcess)];
   }
@@ -188,9 +203,20 @@ export function convertToFunctionResponse(
             contentToProcess.functionResponse.response["content"] as any[],
           ) as any,
         ) || "";
-      return [createFunctionResponsePart(callId, toolName, stringifiedOutput)];
+      return [
+        createFunctionResponsePart(
+          callId,
+          toolName,
+          stringifiedOutput,
+          thoughtSignature,
+        ),
+      ];
     }
     // It's a functionResponse that we should pass through as is.
+    // Attach thoughtSignature if present
+    if (thoughtSignature && !contentToProcess.thoughtSignature) {
+      return [{ ...contentToProcess, thoughtSignature }];
+    }
     return [contentToProcess];
   }
 
@@ -203,19 +229,30 @@ export function convertToFunctionResponse(
       callId,
       toolName,
       `Binary content of type ${mimeType} was processed.`,
+      thoughtSignature,
     );
     return [functionResponse, contentToProcess];
   }
 
   if (contentToProcess.text !== undefined) {
     return [
-      createFunctionResponsePart(callId, toolName, contentToProcess.text),
+      createFunctionResponsePart(
+        callId,
+        toolName,
+        contentToProcess.text,
+        thoughtSignature,
+      ),
     ];
   }
 
   // Default case for other kinds of parts.
   return [
-    createFunctionResponsePart(callId, toolName, "Tool execution succeeded."),
+    createFunctionResponsePart(
+      callId,
+      toolName,
+      "Tool execution succeeded.",
+      thoughtSignature,
+    ),
   ];
 }
 
@@ -235,20 +272,25 @@ const createErrorResponse = (
   request: ToolCallRequestInfo,
   error: Error,
   errorType: ToolErrorType | undefined,
-): ToolCallResponseInfo => ({
-  callId: request.callId,
-  error,
-  responseParts: [
-    {
-      functionResponse: {
-        name: request.name,
-        response: { error: error.message, id: request.callId },
-      },
+): ToolCallResponseInfo => {
+  const errorPart: Part = {
+    functionResponse: {
+      name: request.name,
+      response: { error: error.message, id: request.callId },
     },
-  ],
-  resultDisplay: error.message,
-  errorType,
-});
+  };
+  // Include thoughtSignature for Gemini 3 Pro compatibility
+  if (request.thoughtSignature) {
+    errorPart.thoughtSignature = request.thoughtSignature;
+  }
+  return {
+    callId: request.callId,
+    error,
+    responseParts: [errorPart],
+    resultDisplay: error.message,
+    errorType,
+  };
+};
 
 export async function truncateAndSaveToFile(
   content: string,
@@ -995,6 +1037,7 @@ export class CoreToolScheduler {
                 toolName,
                 callId,
                 partListUnionToKaidexArray(content as any),
+                scheduledCall.request.thoughtSignature,
               );
               const successResponse: ToolCallResponseInfo = {
                 callId,

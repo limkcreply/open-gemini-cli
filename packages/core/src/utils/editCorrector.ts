@@ -24,6 +24,10 @@ import {
   googleContentArrayToKaidex,
 } from "./typeAdapters.js";
 import * as fs from "node:fs";
+import {
+  setApiCallSource,
+  resetApiCallSource,
+} from "../telemetry/uiTelemetry.js";
 
 const EditModel = DEFAULT_KAIDEX_FLASH_LITE_MODEL;
 const EditConfig: GenerateContentConfig = {
@@ -406,6 +410,7 @@ Return ONLY the corrected target snippet in the specified JSON format with the k
 
   const contents: Content[] = [{ role: "user", parts: [{ text: prompt }] }];
 
+  setApiCallSource("edit_corrector");
   try {
     const result = await geminiClient.generateJson(
       googleContentArrayToKaidex(contents),
@@ -436,6 +441,8 @@ Return ONLY the corrected target snippet in the specified JSON format with the k
     );
 
     return problematicSnippet;
+  } finally {
+    resetApiCallSource();
   }
 }
 
@@ -495,6 +502,7 @@ Return ONLY the corrected string in the specified JSON format with the key 'corr
 
   const contents: Content[] = [{ role: "user", parts: [{ text: prompt }] }];
 
+  setApiCallSource("edit_corrector");
   try {
     const result = await geminiClient.generateJson(
       googleContentArrayToKaidex(contents),
@@ -521,6 +529,8 @@ Return ONLY the corrected string in the specified JSON format with the key 'corr
 
     console.error("Error during LLM call for new_string correction:", error);
     return originalNewString;
+  } finally {
+    resetApiCallSource();
   }
 }
 
@@ -565,6 +575,7 @@ Return ONLY the corrected string in the specified JSON format with the key 'corr
 
   const contents: Content[] = [{ role: "user", parts: [{ text: prompt }] }];
 
+  setApiCallSource("edit_corrector");
   try {
     const result = await geminiClient.generateJson(
       googleContentArrayToKaidex(contents),
@@ -594,6 +605,8 @@ Return ONLY the corrected string in the specified JSON format with the key 'corr
       error,
     );
     return potentiallyProblematicNewString;
+  } finally {
+    resetApiCallSource();
   }
 }
 
@@ -632,6 +645,7 @@ Return ONLY the corrected string in the specified JSON format with the key 'corr
 
   const contents: Content[] = [{ role: "user", parts: [{ text: prompt }] }];
 
+  setApiCallSource("edit_corrector");
   try {
     const result = await client.generateJson(
       contents,
@@ -661,6 +675,8 @@ Return ONLY the corrected string in the specified JSON format with the key 'corr
       error,
     );
     return potentiallyProblematicString;
+  } finally {
+    resetApiCallSource();
   }
 }
 

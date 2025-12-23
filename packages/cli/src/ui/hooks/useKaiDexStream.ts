@@ -101,6 +101,7 @@ export const useKaiDexStream = (
   setModelSwitchedFromQuotaError: React.Dispatch<React.SetStateAction<boolean>>,
   onEditorClose: () => void,
   onCancelSubmit: () => void,
+  onCompressionEvent?: (compression: { originalTokenCount: number; newTokenCount: number }) => void,
 ) => {
   const [initError, setInitError] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -558,7 +559,7 @@ export const useKaiDexStream = (
   );
 
   const handleChatCompressionEvent = useCallback(
-    (eventValue: ServerKaiDexChatCompressedEvent["value"]) =>
+    (eventValue: ServerKaiDexChatCompressedEvent["value"]) => {
       addItem(
         {
           type: "info",
@@ -569,8 +570,16 @@ export const useKaiDexStream = (
             `${eventValue?.newTokenCount ?? "unknown"} tokens).`,
         },
         Date.now(),
-      ),
-    [addItem, config],
+      );
+      // Update UI status line with compression info
+      if (onCompressionEvent && eventValue?.originalTokenCount && eventValue?.newTokenCount) {
+        onCompressionEvent({
+          originalTokenCount: eventValue.originalTokenCount,
+          newTokenCount: eventValue.newTokenCount,
+        });
+      }
+    },
+    [addItem, config, onCompressionEvent],
   );
 
   const handleMaxSessionTurnsEvent = useCallback(
