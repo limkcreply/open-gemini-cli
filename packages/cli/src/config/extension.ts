@@ -12,12 +12,17 @@ import { GEMINI_DIR, Storage } from "@google/kaidex-cli-core";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+import { fileURLToPath } from "node:url";
 import { simpleGit } from "simple-git";
 import { SettingScope, loadSettings } from "../config/settings.js";
 import { getErrorMessage } from "../utils/errors.js";
 import { recursivelyHydrateStrings } from "./extensions/variables.js";
 import { isWorkspaceTrusted } from "./trustedFolders.js";
 import { resolveEnvVarsInObject } from "../utils/envVarResolver.js";
+
+// Get the directory of this file for finding bundled extensions
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export const EXTENSIONS_DIRECTORY_NAME = path.join(GEMINI_DIR, "extensions");
 
@@ -115,7 +120,8 @@ export function loadExtensions(
 ): Extension[] {
   const settings = loadSettings(workspaceDir).merged;
   const disabledExtensions = settings.extensions?.disabled ?? [];
-  const allExtensions = [...loadUserExtensions()];
+  // Load bundled extensions first, then user extensions (user can override)
+  const allExtensions = [...loadBundledExtensions(), ...loadUserExtensions()];
 
   if (
     (isWorkspaceTrusted(settings) ?? true) &&
@@ -149,6 +155,66 @@ export function loadUserExtensions(): Extension[] {
   }
 
   return Array.from(uniqueExtensions.values());
+}
+
+/**
+ * Loads bundled extensions that ship with kaidex-cli.
+ * These are located in the bundled-extensions directory.
+ * Bundled extensions can be disabled via CONDUCTOR_ENABLED=false env var
+ * or via the extensions.disabled setting.
+ */
+export function loadBundledExtensions(): Extension[] {
+  const extensions: Extension[] = [];
+
+  // Check for bundled extensions directory
+  // In bundle: bundle/kaidex.js -> bundled-extensions (same dir)
+  // In dist: packages/cli/dist/src/config/extension.js -> ../bundled-extensions
+  // In source: packages/cli/src/config/extension.ts -> ../bundled-extensions
+  const possiblePaths = [
+    path.join(__dirname, "bundled-extensions"), // bundle directory
+    path.join(__dirname, "../bundled-extensions"), // dist directory
+    path.join(__dirname, "../../src/bundled-extensions"),
+    path.join(__dirname, "../../../../src/bundled-extensions"),
+  ];
+
+  let bundledExtensionsDir: string | null = null;
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) {
+      bundledExtensionsDir = p;
+      break;
+    }
+  }
+
+  if (!bundledExtensionsDir) {
+    return extensions;
+  }
+
+  // Load each bundled extension
+  try {
+    const subdirs = fs.readdirSync(bundledExtensionsDir);
+    for (const subdir of subdirs) {
+      const extensionDir = path.join(bundledExtensionsDir, subdir);
+
+      // Check if this bundled extension is enabled via env var
+      // e.g., CONDUCTOR_ENABLED=true for the conductor extension
+      const envVarName = `${subdir.toUpperCase()}_ENABLED`;
+      const envValue = process.env[envVarName];
+
+      // Bundled extensions are disabled by default unless explicitly enabled
+      if (envValue !== "true" && envValue !== "1") {
+        continue;
+      }
+
+      const extension = loadExtension(extensionDir);
+      if (extension != null) {
+        extensions.push(extension);
+      }
+    }
+  } catch (error) {
+    // Silently ignore if bundled extensions can't be loaded
+  }
+
+  return extensions;
 }
 
 export function loadExtensionsFromDir(dir: string): Extension[] {

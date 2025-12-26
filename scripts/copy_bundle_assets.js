@@ -17,7 +17,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { glob } from "glob";
@@ -52,6 +52,16 @@ const vsixFiles = glob.sync("packages/vscode-ide-companion/*.vsix", {
 });
 for (const file of vsixFiles) {
   copyFileSync(join(root, file), join(bundleDir, basename(file)));
+}
+
+// Copy bundled extensions to bundle directory
+const bundledExtensionsPath = join(
+  root,
+  "packages/cli/src/bundled-extensions",
+);
+if (existsSync(bundledExtensionsPath)) {
+  const bundleExtensionsDir = join(bundleDir, "bundled-extensions");
+  cpSync(bundledExtensionsPath, bundleExtensionsDir, { recursive: true });
 }
 
 console.log("Assets copied to bundle/");

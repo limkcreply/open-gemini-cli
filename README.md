@@ -131,6 +131,32 @@ Providers are configured in `bundle/llmProviders.json`. Add your own:
 - MCP (Model Context Protocol) support
 - Conversation checkpointing
 - Project context via KAIDEX.md files
+- Conductor: Context-driven development (optional)
+
+## Conductor Extension (Optional)
+
+Conductor is a bundled extension that adds a "plan before you code" workflow. It's disabled by default.
+
+**Enable:**
+```bash
+# In .env
+CONDUCTOR_ENABLED=true
+```
+
+**Commands:**
+- `/conductor:setup` - Initialize project context (product, tech stack, workflow)
+- `/conductor:newTrack <name>` - Create a feature/bug track with spec and plan
+- `/conductor:implement <track-id>` - Execute the plan step by step
+- `/conductor:status` - Show progress across all tracks
+- `/conductor:revert <track-id>` - Undo a track's changes
+
+**How it works:**
+
+1. **Setup once**: Define your project (what you're building, tech stack, workflow)
+2. **Create tracks**: For each feature, create a spec + implementation plan
+3. **Implement**: AI follows the plan, checking off tasks as completed
+
+Files are stored in `conductor/` directory and committed to git for team sharing.
 
 ## Web Search Setup
 

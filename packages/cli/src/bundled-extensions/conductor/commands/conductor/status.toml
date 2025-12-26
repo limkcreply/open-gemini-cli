@@ -1,0 +1,37 @@
+description = "Show progress across all Conductor tracks"
+prompt = """
+Show the status of all Conductor tracks.
+
+## Steps
+
+1. Read `conductor/tracks.md` to get the list of tracks
+
+2. For each track, read:
+   - `conductor/tracks/<id>/metadata.json` - Status info
+   - `conductor/tracks/<id>/plan.md` - Task completion
+
+3. Display a summary:
+   ```
+   ## Conductor Status
+
+   ### Active Tracks
+   | Track | Status | Progress | Last Updated |
+   |-------|--------|----------|--------------|
+   | ... | ... | X/Y tasks | ... |
+
+   ### Completed Tracks
+   | Track | Completed | Tasks |
+   |-------|-----------|-------|
+   | ... | ... | ... |
+   ```
+
+4. For each active track, show:
+   - Current phase
+   - Next uncompleted task
+   - Any blockers noted
+
+## Output Format
+
+Present the information in a clear, scannable format.
+Count completed vs total tasks by counting `[x]` vs `[ ]` in plan.md.
+"""

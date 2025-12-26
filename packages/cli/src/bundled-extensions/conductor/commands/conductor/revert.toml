@@ -1,0 +1,37 @@
+description = "Undo a track's changes using git"
+prompt = """
+Revert the changes made for track: {{args}}
+
+## Steps
+
+1. Read track metadata:
+   - `conductor/tracks/{{args}}/metadata.json`
+   - Get the track's creation date
+
+2. Find related git commits:
+   - Look for commits since the track was created
+   - Identify commits related to this track (by message or files changed)
+
+3. Show what will be reverted:
+   - List the commits
+   - List the files that will be affected
+   - Ask for confirmation before proceeding
+
+4. If confirmed:
+   - Use `git revert` to undo commits (preserves history)
+   - OR offer to create a new branch with reverted state
+   - Update track status to "reverted" in metadata.json
+   - Update conductor/tracks.md
+
+## Safety
+
+- NEVER use `git reset --hard` (destructive)
+- ALWAYS use `git revert` to preserve history
+- ALWAYS ask for confirmation before reverting
+- Show exactly what will be changed before doing it
+
+## Warning
+
+Tell the user:
+"This will create revert commits for the track's changes. The original commits will remain in history. Are you sure you want to proceed?"
+"""

@@ -26,8 +26,7 @@ export const GOOGLE_GEMINI_2_5 = 1_048_576; // Standard Gemini 2.5 models
 export const GOOGLE_GEMINI_1_5_PRO = 2_097_152; // Gemini 1.5 Pro
 
 // Default for local LLMs and unknown models
-// DEBUG: Low limit to observe context % bouncing (REMOVE AFTER DEBUG)
-export const DEFAULT_TOKEN_LIMIT = 25_000;
+export const DEFAULT_TOKEN_LIMIT = 256_000;
 
 // globalThis.__dirname is set by esbuild banner - points to bundle directory
 const bundleDirname = (globalThis as any).__dirname as string;
@@ -94,6 +93,7 @@ export function tokenLimit(model: Model): TokenCount {
     case "gemini-2.5-flash":
     case "gemini-2.5-flash-lite":
     case "gemini-2.0-flash":
+    case "gemini-3-pro-preview":
       return GOOGLE_GEMINI_2_5;
     case "gemini-2.0-flash-preview-image-generation":
       return 32_000;

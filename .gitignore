@@ -58,3 +58,6 @@ Screenshot*.png
 *.tmp
 *.temp
 .cache/
+
+# Conductor artifacts (created by /conductor:setup)
+conductor/
