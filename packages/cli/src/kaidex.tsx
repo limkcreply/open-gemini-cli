@@ -393,6 +393,7 @@ export async function main() {
   }
 
   if (
+    process.env["BYPASS_AUTH"] !== "true" &&
     settings.merged.security?.auth?.selectedType ===
       AuthType.LOGIN_WITH_GOOGLE &&
     config.isBrowserLaunchSuppressed()
