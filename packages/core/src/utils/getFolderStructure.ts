@@ -102,7 +102,9 @@ async function readFullStructure(
     } catch (error: unknown) {
       if (
         isNodeError(error) &&
-        (error.code === "EACCES" || error.code === "ENOENT")
+        (error.code === "EACCES" ||
+          error.code === "ENOENT" ||
+          error.code === "EPERM")
       ) {
         console.warn(
           `Warning: Could not read directory ${currentPath}: ${error.message}`,
@@ -110,9 +112,10 @@ async function readFullStructure(
         if (currentPath === rootPath && error.code === "ENOENT") {
           return null; // Root directory itself not found
         }
-        // For other EACCES/ENOENT on subdirectories, just skip them.
+        // For other EACCES/ENOENT/EPERM on subdirectories, just skip them.
         continue;
       }
+
       throw error;
     }
 
