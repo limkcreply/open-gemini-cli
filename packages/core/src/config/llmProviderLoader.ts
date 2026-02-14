@@ -21,6 +21,7 @@ export interface LLMProviderConfig {
   defaultModel?: string;
   maxInputTokens?: number;
   maxOutputTokens?: number;
+  requiresWebSearch?: boolean;
 }
 
 interface ProvidersConfig {

@@ -193,6 +193,36 @@
       "format": "openai",
       "streaming": true,
       "defaultModel": "gemini-3-pro-preview"
+    },
+    "o3-deep-research": {
+      "name": "o3 Deep Research ($10/$2.50/$40 | 200k ctx, 100k max)",
+      "baseURL": "https://api.openai.com/v1",
+      "endpoint": "/responses",
+      "headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer ${OPENAI_API_KEY}"
+      },
+      "format": "openai",
+      "streaming": true,
+      "defaultModel": "o3-deep-research",
+      "maxInputTokens": 200000,
+      "maxOutputTokens": 100000,
+      "requiresWebSearch": true
+    },
+    "o4-mini-deep-research": {
+      "name": "o4-mini Deep Research ($2/$0.50/$8 | 200k ctx, 100k max)",
+      "baseURL": "https://api.openai.com/v1",
+      "endpoint": "/responses",
+      "headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer ${OPENAI_API_KEY}"
+      },
+      "format": "openai",
+      "streaming": true,
+      "defaultModel": "o4-mini-deep-research",
+      "maxInputTokens": 200000,
+      "maxOutputTokens": 100000,
+      "requiresWebSearch": true
     }
   }
 }

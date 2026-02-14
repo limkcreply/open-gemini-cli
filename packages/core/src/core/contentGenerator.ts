@@ -396,6 +396,7 @@ export interface ContentGeneratorConfig {
   headers?: Record<string, string>;
   maxInputTokens?: number;
   maxOutputTokens?: number;
+  requiresWebSearch?: boolean;
 }
 
 // === KaiDex pre-send safety helpers ===
@@ -632,6 +633,7 @@ class LocalLLMContentGenerator implements ContentGenerator {
   private isCloudAPI: boolean;
   private maxInputTokens?: number;
   private maxOutputTokens?: number;
+  private requiresWebSearch: boolean;
 
   constructor(config: ContentGeneratorConfig) {
     // Don't use fallback for cloud APIs - config.baseURL should always be set by provider loader
@@ -654,6 +656,7 @@ class LocalLLMContentGenerator implements ContentGenerator {
       this.baseURL.includes("openai.com") ||
       this.baseURL.includes("anthropic.com") ||
       this.baseURL.includes("googleapis.com");
+    this.requiresWebSearch = config.requiresWebSearch ?? false;
 
   }
 
@@ -739,16 +742,21 @@ class LocalLLMContentGenerator implements ContentGenerator {
           model: this.model,
           input: responsesInput,
           max_output_tokens: request.max_tokens,
-          tool_choice: allowTools ? "auto" : "none",
         };
-        if (allowTools && request.tools) {
-          // Convert from nested chat/completions format to flat responses format
-          reqBody.tools = request.tools.map((tool: any) => ({
-            type: tool.type,
-            name: tool.function.name,
-            description: tool.function.description,
-            parameters: tool.function.parameters,
-          }));
+        if (this.requiresWebSearch) {
+          // Deep-research models only accept web_search_preview, code_interpreter, mcp, file_search
+          reqBody.tools = [{ type: "web_search_preview" }];
+        } else {
+          reqBody.tool_choice = allowTools ? "auto" : "none";
+          if (allowTools && request.tools) {
+            // Convert from nested chat/completions format to flat responses format
+            reqBody.tools = request.tools.map((tool: any) => ({
+              type: tool.type,
+              name: tool.function.name,
+              description: tool.function.description,
+              parameters: tool.function.parameters,
+            }));
+          }
         }
         const resp = await fetch(url2, {
           method: "POST",
@@ -1064,16 +1072,21 @@ class LocalLLMContentGenerator implements ContentGenerator {
           model: this.model,
           input: responsesInput,
           max_output_tokens: request.max_tokens,
-          tool_choice: allowTools ? "auto" : "none",
         };
-        if (allowTools && request.tools) {
-          // Convert from nested chat/completions format to flat responses format
-          reqBody.tools = request.tools.map((tool: any) => ({
-            type: tool.type,
-            name: tool.function.name,
-            description: tool.function.description,
-            parameters: tool.function.parameters,
-          }));
+        if (this.requiresWebSearch) {
+          // Deep-research models only accept web_search_preview, code_interpreter, mcp, file_search
+          reqBody.tools = [{ type: "web_search_preview" }];
+        } else {
+          reqBody.tool_choice = allowTools ? "auto" : "none";
+          if (allowTools && request.tools) {
+            // Convert from nested chat/completions format to flat responses format
+            reqBody.tools = request.tools.map((tool: any) => ({
+              type: tool.type,
+              name: tool.function.name,
+              description: tool.function.description,
+              parameters: tool.function.parameters,
+            }));
+          }
         }
         const resp = await fetch(url, {
           method: "POST",
@@ -2409,6 +2422,7 @@ export async function createContentGenerator(
     headers: providerConfig.headers,
     maxInputTokens: providerConfig.maxInputTokens,
     maxOutputTokens: providerConfig.maxOutputTokens,
+    requiresWebSearch: providerConfig.requiresWebSearch,
   });
 
   // ALWAYS wrap with logging for UI token display (even if OpenTelemetry is disabled)
