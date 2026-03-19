@@ -347,6 +347,26 @@ export function KeypressProvider({
             length: m[0].length,
           };
         }
+
+        // Printable ASCII characters (space through tilde, 32-126)
+        // In Kitty "disambiguate" mode, space is reported as CSI-u
+        // but was not previously handled, causing it to get stuck in
+        // the kittySequenceBuffer and block all subsequent input.
+        if (keyCode >= 32 && keyCode <= 126) {
+          const char = String.fromCharCode(keyCode);
+          return {
+            key: {
+              name: char === " " ? "" : char,
+              ctrl,
+              meta: alt,
+              shift,
+              paste: false,
+              sequence: char,
+              kittyProtocol: true,
+            },
+            length: m[0].length,
+          };
+        }
       }
 
       // 4) Legacy function keys (no parameters): ESC [ (A|B|C|D|H|F)
