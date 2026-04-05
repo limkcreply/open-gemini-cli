@@ -46,7 +46,7 @@ export function AuthDialog({
 
   let items = [
     {
-      label: "Login with KaiDex",
+      label: "Login with Google",
       value: AuthType.LOGIN_WITH_GOOGLE,
     },
     ...(process.env["CLOUD_SHELL"] === "true"
@@ -58,7 +58,7 @@ export function AuthDialog({
         ]
       : []),
     {
-      label: "Use KaiDex API Key",
+      label: "Use Gemini API Key",
       value: AuthType.USE_GEMINI,
     },
     { label: "Vertex AI", value: AuthType.USE_VERTEX_AI },
@@ -98,6 +98,12 @@ export function AuthDialog({
     initialAuthIndex = 0;
   }
 
+  // Clamp to valid range — saved selectedType may not match any dialog item
+  // (e.g. "local-llm" from BYPASS_AUTH usage won't be in the list)
+  if (initialAuthIndex < 0 || initialAuthIndex >= items.length) {
+    initialAuthIndex = 0;
+  }
+
   const onSelect = useCallback(
     async (authType: AuthType | undefined, scope: SettingScope) => {
       if (authType) {
@@ -112,7 +118,7 @@ export function AuthDialog({
           console.log(
             `
 ----------------------------------------------------------------
-Logging in with KaiDex... Please restart KaiDex CLI to continue.
+Logging in with Google... Please restart to continue.
 ----------------------------------------------------------------
             `,
           );
@@ -136,13 +142,10 @@ Logging in with KaiDex... Please restart KaiDex CLI to continue.
   useKeypress(
     (key) => {
       if (key.name === "escape") {
-        // Prevent exit if there is an error message.
-        // This means they user is not authenticated yet.
         if (authError) {
           return;
         }
         if (settings.merged.security?.auth?.selectedType === undefined) {
-          // Prevent exiting if no auth method is set
           onAuthError(
             "You must select an auth method to proceed. Press Ctrl+C twice to exit.",
           );
@@ -155,9 +158,7 @@ Logging in with KaiDex... Please restart KaiDex CLI to continue.
   );
 
   if (bypassAuth) {
-    return (
-      <Text>🚀 KaiDex: Authentication bypassed - ready for local LLM</Text>
-    );
+    return <></>;
   }
 
   return (

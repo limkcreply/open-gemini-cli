@@ -31,11 +31,8 @@ export function validateAuthMethodWithSettings(
 }
 
 export const useAuthCommand = (settings: LoadedSettings, config: Config) => {
-  // Start in authenticated state when bypassing auth
-  const initialAuthState =
-    process.env["BYPASS_AUTH"] === "true"
-      ? AuthState.Authenticated
-      : AuthState.Unauthenticated;
+  // Auth is driven by LLM_PROVIDER + env keys — no interactive dialog
+  const initialAuthState = AuthState.Authenticated;
 
   const [authState, setAuthState] = useState<AuthState>(initialAuthState);
   const [authError, setAuthError] = useState<string | null>(null);

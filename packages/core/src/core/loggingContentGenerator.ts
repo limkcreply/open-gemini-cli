@@ -146,7 +146,8 @@ export class LoggingContentGenerator implements ContentGenerator {
 
     let stream: AsyncGenerator<GenerateContentResponse>;
     try {
-      stream = this.wrapped.generateContentStream(req, userPromptId);
+      // await handles both AsyncGenerator (OpenAI path) and Promise<AsyncGenerator> (native Gemini SDK)
+      stream = await Promise.resolve(this.wrapped.generateContentStream(req, userPromptId));
     } catch (error) {
       const durationMs = Date.now() - startTime;
       this._logApiError(durationMs, error, modelName, userPromptId);

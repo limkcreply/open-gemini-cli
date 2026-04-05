@@ -267,6 +267,7 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { GoogleGenAI } from "@google/genai";
 
 /**
  * Start MLX supervisor if not already running
@@ -2386,8 +2387,9 @@ export async function createContentGenerator(
   const providerFromConfig = actualConfig.getProvider();
   const providerConfig = loadProviderConfig(providerFromConfig);
 
-  // Start MLX supervisor if using local-mlx provider
-  const provider = providerFromConfig || process.env["LLM_PROVIDER"] || "local-mlx";
+  // Determine provider: explicit config > env var > default based on auth mode
+  const provider = providerFromConfig || process.env["LLM_PROVIDER"] ||
+    (process.env["BYPASS_AUTH"] === "true" ? "local-mlx" : "");
   if (provider === "local-mlx") {
     await ensureMlxSupervisor(providerConfig.baseURL);
   }
@@ -2401,17 +2403,34 @@ export async function createContentGenerator(
   // Update config with selected model so tokenLimit() uses correct limit
   actualConfig.setModel(selectedModel);
 
-  console.log(`📡 Using LLM provider: ${providerConfig.name}`);
+  console.log(`Using LLM provider: ${providerConfig.name}`);
   console.log(
-    `📡 Endpoint: ${providerConfig.baseURL}${providerConfig.endpoint}`,
+    `Endpoint: ${providerConfig.baseURL}${providerConfig.endpoint}`,
   );
-  console.log(`📡 Model: ${selectedModel}`);
+  console.log(`Model: ${selectedModel}`);
   if (providerConfig.maxInputTokens) {
     console.log(
-      `📊 Context limit: ${providerConfig.maxInputTokens.toLocaleString()} input tokens, ${providerConfig.maxOutputTokens?.toLocaleString() || "unlimited"} output tokens`,
+      `Context limit: ${providerConfig.maxInputTokens.toLocaleString()} input tokens, ${providerConfig.maxOutputTokens?.toLocaleString() || "unlimited"} output tokens`,
     );
   }
 
+  // Native Gemini SDK path — preserves Gemini features (context caching, etc.)
+  const hasGeminiKey = !!process.env["GEMINI_API_KEY"];
+  const useNativeGemini = provider.startsWith("gemini-") || hasGeminiKey;
+  if (useNativeGemini) {
+    const apiKey = process.env["GEMINI_API_KEY"];
+    if (!apiKey) {
+      throw new Error("GEMINI_API_KEY is required for Gemini providers. Set it in your .env file.");
+    }
+    const ai = new GoogleGenAI({ apiKey });
+    console.log(`Using native Gemini SDK (context caching enabled)`);
+    return new LoggingContentGenerator(
+      ai.models as unknown as ContentGenerator,
+      actualConfig as any,
+    ) as unknown as ContentGenerator;
+  }
+
+  // OpenAI-compatible path — for local LLMs, OpenAI, Claude, and other providers
   const generator = new LocalLLMContentGenerator({
     authType: AuthType.LOCAL_LLM,
     baseURL: providerConfig.baseURL,
@@ -2425,14 +2444,10 @@ export async function createContentGenerator(
     requiresWebSearch: providerConfig.requiresWebSearch,
   });
 
-  // ALWAYS wrap with logging for UI token display (even if OpenTelemetry is disabled)
-  // The LoggingContentGenerator feeds uiTelemetryService which powers the context display
-  return Promise.resolve(
-    new LoggingContentGenerator(
-      generator,
-      actualConfig as any,
-    ) as unknown as ContentGenerator,
-  );
+  return new LoggingContentGenerator(
+    generator,
+    actualConfig as any,
+  ) as unknown as ContentGenerator;
 }
 
 /**

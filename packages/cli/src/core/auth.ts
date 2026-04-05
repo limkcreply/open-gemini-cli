@@ -14,14 +14,14 @@ import {
 /**
  * Handles the initial authentication flow.
  * @param config The application config.
- * @param authType The selected auth type.
+ * @param authType The selected auth type from settings.
  * @returns An error message if authentication fails, otherwise null.
  */
 export async function performInitialAuth(
   config: Config,
   authType: AuthType | undefined,
 ): Promise<string | null> {
-  // Bypass authentication for local LLM usage
+  // BYPASS_AUTH is for local LLM usage — skip all auth
   if (process.env["BYPASS_AUTH"] === "true") {
     try {
       await config.refreshAuth(AuthTypeEnum.LOCAL_LLM);
@@ -31,16 +31,11 @@ export async function performInitialAuth(
     return null;
   }
 
-  if (!authType) {
-    return null;
-  }
-
+  // LLM_PROVIDER + env keys drive routing — always initialize content generator
   try {
-    await config.refreshAuth(authType);
-    // The console.log is intentionally left out here.
-    // We can add a dedicated startup message later if needed.
+    await config.refreshAuth(authType || AuthTypeEnum.USE_GEMINI);
   } catch (e) {
-    return `Failed to login. Message: ${getErrorMessage(e)}`;
+    return `Failed to initialize: ${getErrorMessage(e)}`;
   }
 
   return null;

@@ -128,7 +128,7 @@ Providers are configured in `bundle/llmProviders.json`. Add your own:
 - Shell command execution
 - Web search (3-tier fallback: Tavily → Google Custom Search → Gemini)
 - Web fetching
-- MCP (Model Context Protocol) support
+- MCP (Model Context Protocol) support with ready-to-use servers (arXiv, Semantic Scholar, USPTO Patents, GitHub, npm)
 - Conversation checkpointing
 - Project context via KAIDEX.md files
 - Conductor: Context-driven development (optional)
@@ -173,6 +173,20 @@ TAVILY_API_KEY=your-tavily-key
 GOOGLE_API_KEY=your-google-key
 GOOGLE_SEARCH_ENGINE_ID=your-search-engine-id
 ```
+
+## MCP Servers (Built-in)
+
+KaiDex ships with pre-configured free MCP servers for research and discovery:
+
+| Server | What it does | Requires |
+|--------|-------------|----------|
+| `arxiv` | Search arXiv papers | `uv` |
+| `semantic-scholar` | Academic papers, citations, authors | `uv` |
+| `patent-search` | USPTO patent search | `uv` |
+| `github-search` | GitHub repos, code, issues | `GITHUB_PERSONAL_ACCESS_TOKEN` |
+| `npm-search` | npm package registry | — |
+
+Add to `~/.kaidex/settings.json` — see [MCP Server docs](./docs/tools/mcp-server.md#ready-to-use-mcp-servers) for config.
 
 ## Documentation
 

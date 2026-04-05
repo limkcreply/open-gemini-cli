@@ -225,6 +225,50 @@ You can specify the authentication provider type using the `authProviderType` pr
 }
 ```
 
+### Ready-to-Use MCP Servers
+
+KaiDex works out of the box with these free, open-source MCP servers. Add any of them to your `settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "semantic-scholar": {
+      "command": "uvx",
+      "args": ["semanticscholar-mcp-server"],
+      "description": "Academic paper search via Semantic Scholar API - papers, citations, authors"
+    },
+    "arxiv": {
+      "command": "uvx",
+      "args": ["arxiv-mcp-server"],
+      "description": "Search and analyze arXiv research papers"
+    },
+    "patent-search": {
+      "command": "uvx",
+      "args": ["patent-mcp-server"],
+      "description": "USPTO patent search - patents, applications, litigation"
+    },
+    "github-search": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "description": "GitHub repo search, file ops, issues, PRs"
+    },
+    "npm-search": {
+      "command": "npx",
+      "args": ["-y", "npm-search-mcp-server"],
+      "description": "Search npm package registry"
+    }
+  }
+}
+```
+
+**Prerequisites:**
+- `uv` (for `uvx` servers): `brew install uv` or `pip install uv`
+- `node` (for `npx` servers): already required by KaiDex
+- **GitHub server** requires `GITHUB_PERSONAL_ACCESS_TOKEN` env var — generate a read-only token at https://github.com/settings/tokens
+- **Patent server** optionally uses `USPTO_API_KEY` (register at https://data.uspto.gov) and `PATENTSVIEW_API_KEY` for full access. Basic patent search works without keys.
+
+All other servers are free with no API keys required.
+
 ### Example Configurations
 
 #### Python MCP Server (Stdio)
